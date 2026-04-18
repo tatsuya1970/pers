@@ -6,3 +6,7 @@ instance/
 database.sqlite
 static/uploads/
 generated/
+.venv/
+node_modules/
+*.db
+*.sqlite3

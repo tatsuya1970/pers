@@ -33,6 +33,13 @@ from logic.image_processor import ImageProcessor
 
 app = FastAPI(title="PersImage SaaS - 建物パース合成")
 
+@app.on_event("startup")
+async def startup_event():
+    import database
+    print("--- データベーステーブル作成開始 ---")
+    database.Base.metadata.create_all(bind=database.engine)
+    print("--- データベーステーブル作成完了 ---")
+
 ERROR_COOLDOWN_SECONDS = 3600  # 同じエラーメールは1時間に1度のみ送信
 last_error_times = {}
 
@@ -106,9 +113,21 @@ async def get_current_user(x_user_id: str = Header(None), db: Session = Depends(
     return user
 
 @app.post("/api/user/sync")
-async def sync_user(user: User = Depends(get_current_user)):
+async def sync_user(db: Session = Depends(get_db), x_user_id: str = Header(None)):
+    print(f"--- ユーザー同期中: {x_user_id} ---")
+    if not x_user_id:
+        print("X-User-ID ヘッダーがありません")
+        return {"error": "User ID missing"}
+    
+    user = db.query(User).filter(User.firebase_uid == x_user_id).first()
     if not user:
-        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+        print(f"新規ユーザー作成: {x_user_id}")
+        user = User(firebase_uid=x_user_id, credits=10)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    else:
+        print(f"既存ユーザー確認: {x_user_id}, クレジット: {user.credits}")
     return {"status": "success", "credits": user.credits}
 
 @app.get("/api/gallery")

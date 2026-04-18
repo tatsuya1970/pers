@@ -379,22 +379,29 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     # 1. 初回のサブスク開始時（または単発購入時）
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
+        print(f"WEBHOOK RECEIVED: checkout.session.completed - Session ID: {session.id}")
         
         firebase_uid = session.get('client_reference_id')
         metadata = session.get('metadata', {})
-        credits_to_add = int(metadata.get('credits_to_add', 10))
-        plan_type = metadata.get('plan_type') # 'pro' などが入る
+        credits_to_add = int(metadata.get('credits_to_add', 0))
+        item_name = metadata.get('item_name') # ここが以前 'plan_type' になっていたので修正
         
+        print(f"Metadata Info - firebase_uid: {firebase_uid}, credits: {credits_to_add}, item: {item_name}")
+
         if firebase_uid:
             user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
             if user:
                 user.credits += credits_to_add
                 # プランがサブスクリプション（pro）なら、ステータスを standard に変更
-                if plan_type == 'pro':
+                if item_name == 'pro':
                     user.plan = 'standard'
                 
                 db.commit()
-                print(f"Successfully added {credits_to_add} initial credits and updated plan to {user.plan} for user {firebase_uid}")
+                print(f"SUCCESS: Updated user {firebase_uid} - New Credits: {user.credits}, Plan: {user.plan}")
+            else:
+                print(f"ERROR: User {firebase_uid} not found in database during webhook processing")
+        else:
+            print(f"ERROR: No client_reference_id (firebase_uid) in session")
 
     # 2. 2ヶ月目以降の更新支払い成功時
     elif event['type'] == 'invoice.payment_succeeded':

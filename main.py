@@ -106,7 +106,7 @@ async def get_current_user(x_user_id: str = Header(None), db: Session = Depends(
         return None
     user = db.query(User).filter(User.firebase_uid == x_user_id).first()
     if not user:
-        user = User(firebase_uid=x_user_id, credits=10)
+        user = User(firebase_uid=x_user_id, credits=5, plan="free")
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -122,13 +122,13 @@ async def sync_user(db: Session = Depends(get_db), x_user_id: str = Header(None)
     user = db.query(User).filter(User.firebase_uid == x_user_id).first()
     if not user:
         print(f"新規ユーザー作成: {x_user_id}")
-        user = User(firebase_uid=x_user_id, credits=10)
+        user = User(firebase_uid=x_user_id, credits=5, plan="free")
         db.add(user)
         db.commit()
         db.refresh(user)
     else:
-        print(f"既存ユーザー確認: {x_user_id}, クレジット: {user.credits}")
-    return {"status": "success", "credits": user.credits}
+        print(f"既存ユーザー確認: {x_user_id}, プラン: {user.plan}, クレジット: {user.credits}")
+    return {"status": "success", "credits": user.credits, "plan": user.plan.upper()}
 
 @app.get("/api/gallery")
 async def get_gallery(user: User = Depends(get_current_user), db: Session = Depends(get_db)):

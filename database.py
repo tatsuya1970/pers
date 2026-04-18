@@ -30,7 +30,8 @@ class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     firebase_uid = Column(String, unique=True, index=True)
-    credits = Column(Integer, default=10)
+    plan = Column(String, default="free")  # free, standard
+    credits = Column(Integer, default=5)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
     images = relationship("GeneratedImage", back_populates="owner")

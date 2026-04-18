@@ -381,10 +381,10 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         session = event['data']['object']
         print(f"WEBHOOK RECEIVED: checkout.session.completed - Session ID: {session.id}")
         
-        firebase_uid = session.get('client_reference_id')
-        metadata = session.get('metadata', {})
+        firebase_uid = getattr(session, 'client_reference_id', None)
+        metadata = getattr(session, 'metadata', {})
         credits_to_add = int(metadata.get('credits_to_add', 0))
-        item_name = metadata.get('item_name') # ここが以前 'plan_type' になっていたので修正
+        item_name = metadata.get('item_name') 
         
         print(f"Metadata Info - firebase_uid: {firebase_uid}, credits: {credits_to_add}, item: {item_name}")
 
@@ -407,16 +407,15 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     elif event['type'] == 'invoice.payment_succeeded':
         invoice = event['data']['object']
         # サブスクリプション以外（単発払いなど）は無視
-        if not invoice.get('subscription'):
+        sub_id = getattr(invoice, 'subscription', None)
+        if not sub_id:
             return {"status": "success"}
             
         # サブスクリプション詳細を取得して、どのプランか判定
-        subscription = stripe.Subscription.retrieve(invoice.subscription)
-        firebase_uid = subscription.get('metadata', {}).get('firebase_uid')
-        
-        # どの価格（Price）かによって付与するクレジット枚数を決める
-        # ここではメタデータを参照する形が最も安全です
-        credits_to_add = int(subscription.get('metadata', {}).get('credits_to_add', 100))
+        subscription = stripe.Subscription.retrieve(sub_id)
+        sub_metadata = getattr(subscription, 'metadata', {})
+        firebase_uid = sub_metadata.get('firebase_uid')
+        credits_to_add = int(sub_metadata.get('credits_to_add', 100))
 
         if firebase_uid:
             user = db.query(User).filter(User.firebase_uid == firebase_uid).first()

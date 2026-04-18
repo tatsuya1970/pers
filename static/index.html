@@ -23,8 +23,6 @@
                     <div class="tier-description">まずは試してみたい方へ</div>
                     <ul class="tier-features">
                         <li>月間 5 クレジット</li>
-                        <li>基本的な背景合成</li>
-                        <li>標準画質書き出し</li>
                     </ul>
                     <button class="btn-plan" disabled>現在のプラン</button>
                 </div>
@@ -38,7 +36,6 @@
                     <ul class="tier-features">
                         <li>月間 150 クレジット</li>
                         <li>作成履歴の保存 (30日間)</li>
-                        <li>カスタムAI指示（自由入力）</li>
                     </ul>
                     <button class="btn-plan btn-plan-pro" data-plan="pro">Standardプランにアップグレード</button>
                 </div>
@@ -98,21 +95,8 @@
     <div class="app-container">
         <aside class="sidebar">
             <h1 class="logo" style="margin-bottom: 30px;">PersImage</h1>
-            <div class="control-group">
-                <button class="btn btn-outline-green" id="open-gallery-btn" style="width: 100%;">
-                    <span class="icon">🖼</span> 作成履歴
-                </button>
-            </div>
-            <div class="control-group">
-                <h3>背景</h3>
-                <button class="btn" id="open-bg-btn">写真をアップロード</button>
-                <input type="file" id="bg-input" accept="image/*" class="hidden">
-            </div>
-            <div class="control-group">
-                <h3>建物を追加</h3>
-                <button class="btn" id="add-photo-btn">写真・CGを追加</button>
-                <button class="btn btn-outline-green" id="add-sketch-btn">イラストから変換</button>
-            </div>
+            
+            <!-- アカウント関連を最上部に -->
             <div class="control-group">
                 <h3>アカウント</h3>
                 <div id="user-info" class="hidden">
@@ -122,11 +106,31 @@
                     <button id="logout-btn" class="btn btn-secondary" style="margin-top:8px; width:100%; color:#ef4444;">ログアウト</button>
                 </div>
             </div>
+
+            <div style="margin-bottom: 24px;">
+                <button class="btn btn-primary" id="open-gallery-btn" style="width: 100%; border-color: var(--accent-green); color: var(--accent-green); background: transparent;">
+                    <span class="icon">🖼</span> 作成履歴を表示
+                </button>
+            </div>
+
+            <div class="control-group">
+                <h3>背景</h3>
+                <button class="btn" id="open-bg-btn">写真をアップロード</button>
+                <input type="file" id="bg-input" accept="image/*" class="hidden">
+            </div>
+
+            <div class="control-group">
+                <h3>建物を追加</h3>
+                <button class="btn" id="add-photo-btn">写真・CGを追加</button>
+                <button class="btn btn-outline-green" id="add-sketch-btn">イラストをリアル変換</button>
+            </div>
+
             <div class="control-group">
                 <h3>AI編集指示</h3>
                 <textarea class="textarea" placeholder="例：夕方にする、木を増やす"></textarea>
-                <button class="btn btn-primary" id="ai-instruct-btn" style="width:100%; margin-top:8px;">実行</button>
+                <button class="btn btn-primary" id="ai-instruct-btn" style="width:100%; margin-top:8px;">指示を実行</button>
             </div>
+
             <div class="sidebar-section" style="margin-top:auto;">
                 <button class="btn btn-outline" id="undo-btn" disabled>Undo</button>
                 <button class="btn btn-outline-green" id="export-btn">PNG保存</button>

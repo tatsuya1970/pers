@@ -369,7 +369,6 @@ async def create_checkout_session(request: CheckoutRequest, user: User = Depends
             }
         }
 
-        # サブスクリプションの場合は更新時用のメタデータも追加
         if mode == 'subscription':
             checkout_params['subscription_data'] = {
                 "metadata": {
@@ -379,9 +378,14 @@ async def create_checkout_session(request: CheckoutRequest, user: User = Depends
             }
 
         checkout_session = stripe.checkout.Session.create(**checkout_params)
+        print(f"Session Created: {checkout_session.id}")
         return {"url": checkout_session.url}
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        import traceback
+        print("!!! STRIPE API ERROR !!!")
+        print(traceback.format_exc())
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
 
 @app.post("/api/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):

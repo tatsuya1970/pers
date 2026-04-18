@@ -379,10 +379,10 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     # 1. 初回のサブスク開始時（または単発購入時）
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
-        print(f"WEBHOOK RECEIVED: checkout.session.completed - Session ID: {session.id}")
-        
-        firebase_uid = getattr(session, 'client_reference_id', None)
-        metadata = getattr(session, 'metadata', {})
+        # セッションを辞書形式に変換（確実に .get が使えるようにする）
+        session_dict = session.to_dict()
+        firebase_uid = session_dict.get('client_reference_id')
+        metadata = session_dict.get('metadata', {})
         credits_to_add = int(metadata.get('credits_to_add', 0))
         item_name = metadata.get('item_name') 
         
@@ -413,7 +413,8 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             
         # サブスクリプション詳細を取得して、どのプランか判定
         subscription = stripe.Subscription.retrieve(sub_id)
-        sub_metadata = getattr(subscription, 'metadata', {})
+        sub_dict = subscription.to_dict()
+        sub_metadata = sub_dict.get('metadata', {})
         firebase_uid = sub_metadata.get('firebase_uid')
         credits_to_add = int(sub_metadata.get('credits_to_add', 100))
 

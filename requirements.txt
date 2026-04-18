@@ -10,3 +10,7 @@ python-multipart
 passlib
 bcrypt
 python-jose
+numpy
+opencv-python-headless
+rembg
+scipy

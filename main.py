@@ -410,13 +410,18 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         firebase_uid = session.get('client_reference_id')
         metadata = session.get('metadata', {})
         credits_to_add = int(metadata.get('credits_to_add', 10))
+        plan_type = metadata.get('plan_type') # 'pro' などが入る
         
         if firebase_uid:
             user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
             if user:
                 user.credits += credits_to_add
+                # プランがサブスクリプション（pro）なら、ステータスを standard に変更
+                if plan_type == 'pro':
+                    user.plan = 'standard'
+                
                 db.commit()
-                print(f"Successfully added {credits_to_add} initial credits to user {firebase_uid}")
+                print(f"Successfully added {credits_to_add} initial credits and updated plan to {user.plan} for user {firebase_uid}")
 
     # 2. 2ヶ月目以降の更新支払い成功時
     elif event['type'] == 'invoice.payment_succeeded':

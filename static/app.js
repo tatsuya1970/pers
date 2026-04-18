@@ -615,11 +615,14 @@ document.addEventListener('DOMContentLoaded', () => {
     async function handleCheckout(params) {
         const userUID = window.currentUserUID;
         if (!userUID) {
-            alert('ログインが必要です。');
+            alert('ログインが必要です。Googleでログインしてから再度お試しください。');
             return;
         }
 
         try {
+            // ローディングを表示
+            document.getElementById('loading-overlay')?.classList.remove('hidden');
+
             const response = await fetch('/api/create-checkout-session', {
                 method: 'POST',
                 headers: {
@@ -633,20 +636,28 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.url) {
                 window.location.href = data.url;
             } else {
+                document.getElementById('loading-overlay')?.classList.add('hidden');
                 alert('エラー: ' + (data.error || '決済セッションの作成に失敗しました'));
             }
         } catch (error) {
+            document.getElementById('loading-overlay')?.classList.add('hidden');
             console.error('Checkout error:', error);
             alert('通信エラーが発生しました');
         }
     }
 
-    // ボタン要素へのイベント紐付け
-    document.querySelectorAll('.btn-plan[data-plan]').forEach(button => {
-        button.addEventListener('click', () => handleCheckout({ plan: button.getAttribute('data-plan') }));
-    });
+    // イベント委譲（要素が動的に変わっても反応するようにする）
+    document.addEventListener('click', (e) => {
+        const planBtn = e.target.closest('.btn-plan[data-plan]');
+        if (planBtn) {
+            handleCheckout({ plan: planBtn.getAttribute('data-plan') });
+            return;
+        }
 
-    document.querySelectorAll('.btn-addon[data-addon]').forEach(button => {
-        button.addEventListener('click', () => handleCheckout({ addon: button.getAttribute('data-addon') }));
+        const addonBtn = e.target.closest('.btn-addon[data-addon]');
+        if (addonBtn) {
+            handleCheckout({ addon: addonBtn.getAttribute('data-addon') });
+            return;
+        }
     });
 });

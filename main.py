@@ -353,38 +353,43 @@ async def create_checkout_session(request: CheckoutRequest, user: User = Depends
         return JSONResponse(status_code=400, content={"error": "無効なアイテムが選択されました"})
 
     try:
-        print(f"Sending to Stripe - Price ID: {config['price_id']}, Mode: {mode}")
-        checkout_params = {
-            'payment_method_types': ['card'],
-            'line_items': [{'price': config["price_id"], 'quantity': 1}],
-            'mode': mode,
-            'success_url': f"{FRONTEND_URL}/success?session_id={{CHECKOUT_SESSION_ID}}",
-            'cancel_url': f"{FRONTEND_URL}/",
-            'client_reference_id': user.firebase_uid,
-            'metadata': {
+        import stripe
+        import traceback
+        print(f"DEBUG: Using stripe library version: {stripe.__version__}")
+        print(f"DEBUG: Price ID involved: {config['price_id']}")
+        
+        # Stripeのリクエストを実行
+        checkout_session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{'price': config["price_id"], 'quantity': 1}],
+            mode=mode,
+            success_url=f"{FRONTEND_URL}/success?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{FRONTEND_URL}/",
+            client_reference_id=user.firebase_uid,
+            metadata={
                 "user_id": user.id,
                 "type": mode,
                 "item_name": request.plan or request.addon,
                 "credits_to_add": config["credits"]
             }
-        }
-
-        if mode == 'subscription':
-            checkout_params['subscription_data'] = {
-                "metadata": {
-                    "firebase_uid": user.firebase_uid,
-                    "credits_to_add": config["credits"]
-                }
-            }
-
-        checkout_session = stripe.checkout.Session.create(**checkout_params)
-        print(f"Session Created: {checkout_session.id}")
+        )
+        print(f"SUCCESS: Session Created: {checkout_session.id}")
         return {"url": checkout_session.url}
-    except Exception as e:
+        
+    except Exception as stripe_err:
         import traceback
-        print("!!! STRIPE API ERROR !!!")
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        print("CRITICAL STRIPE API ERROR DETECTED")
+        print(f"Error Type: {type(stripe_err)}")
+        print(f"Error Message: {str(stripe_err)}")
         print(traceback.format_exc())
-        return JSONResponse(status_code=400, content={"error": str(e)})
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        return JSONResponse(status_code=400, content={"error": f"Stripeエラー: {str(stripe_err)}"})
+    except:
+        import traceback
+        print("--- UNKNOWN CRITICAL ERROR ---")
+        print(traceback.format_exc())
+        return JSONResponse(status_code=500, content={"error": "想定外の致命的なエラーが発生しました"})
 
 
 @app.post("/api/webhook")

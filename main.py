@@ -310,6 +310,12 @@ class CheckoutRequest(BaseModel):
 
 @app.post("/api/create-checkout-session")
 async def create_checkout_session(request: CheckoutRequest, user: User = Depends(get_current_user)):
+    # --- デバッグログ開始 ---
+    current_key = stripe.api_key
+    print(f"--- Checkout Attempt ---")
+    print(f"Stripe Key starts with: {current_key[:7] if current_key else 'None'}")
+    print(f"Requested Item: {request.plan or request.addon}")
+    # -----------------------
     # サブスクリプションプランの設定
     sub_configs = {
         "pro": {
@@ -347,6 +353,7 @@ async def create_checkout_session(request: CheckoutRequest, user: User = Depends
         return JSONResponse(status_code=400, content={"error": "無効なアイテムが選択されました"})
 
     try:
+        print(f"Sending to Stripe - Price ID: {config['price_id']}, Mode: {mode}")
         checkout_params = {
             'payment_method_types': ['card'],
             'line_items': [{'price': config["price_id"], 'quantity': 1}],

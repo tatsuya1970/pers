@@ -310,33 +310,11 @@ class CheckoutRequest(BaseModel):
 
 @app.post("/api/create-checkout-session")
 async def create_checkout_session(request: CheckoutRequest, user: User = Depends(get_current_user)):
-    # --- デバッグログ開始 ---
-    current_key = stripe.api_key
-    print(f"--- Checkout Attempt ---")
-    print(f"Stripe Key starts with: {current_key[:7] if current_key else 'None'}")
-    print(f"Requested Item: {request.plan or request.addon}")
-    # -----------------------
     # サブスクリプションプランの設定
     sub_configs = {
         "pro": {
             "price_id": os.getenv("STRIPE_PRICE_ID_STANDARD", "price_dummy_standard"),
             "credits": 150
-        }
-    }
-
-    # 単発購入（アドオン）の設定
-    addon_configs = {
-        "topup_10": {
-            "price_id": os.getenv("STRIPE_PRICE_ID_TOPUP_10", "price_dummy_10"),
-            "credits": 10
-        },
-        "topup_50": {
-            "price_id": os.getenv("STRIPE_PRICE_ID_TOPUP_50", "price_dummy_50"),
-            "credits": 50
-        },
-        "topup_200": {
-            "price_id": os.getenv("STRIPE_PRICE_ID_TOPUP_200", "price_dummy_200"),
-            "credits": 200
         }
     }
 
@@ -353,12 +331,11 @@ async def create_checkout_session(request: CheckoutRequest, user: User = Depends
         return JSONResponse(status_code=400, content={"error": "無効なアイテムが選択されました"})
 
     try:
-        import stripe
-        import traceback
-        print(f"DEBUG: Using stripe library version: {stripe.__version__}")
-        print(f"DEBUG: Price ID involved: {config['price_id']}")
+        # デバッグログ
+        print(f"--- Stripe Session Creation Start ---")
+        print(f"Price ID: {config['price_id']}")
+        print(f"User firebase_uid: {user.firebase_uid}")
         
-        # Stripeのリクエストを実行
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
             line_items=[{'price': config["price_id"], 'quantity': 1}],
@@ -373,23 +350,14 @@ async def create_checkout_session(request: CheckoutRequest, user: User = Depends
                 "credits_to_add": config["credits"]
             }
         )
-        print(f"SUCCESS: Session Created: {checkout_session.id}")
+        print(f"SUCCESS: Session ID: {checkout_session.id}")
         return {"url": checkout_session.url}
         
-    except Exception as stripe_err:
+    except Exception as e:
         import traceback
-        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        print("CRITICAL STRIPE API ERROR DETECTED")
-        print(f"Error Type: {type(stripe_err)}")
-        print(f"Error Message: {str(stripe_err)}")
+        print("!!! STRIPE API ERROR !!!")
         print(traceback.format_exc())
-        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        return JSONResponse(status_code=400, content={"error": f"Stripeエラー: {str(stripe_err)}"})
-    except:
-        import traceback
-        print("--- UNKNOWN CRITICAL ERROR ---")
-        print(traceback.format_exc())
-        return JSONResponse(status_code=500, content={"error": "想定外の致命的なエラーが発生しました"})
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
 
 @app.post("/api/webhook")

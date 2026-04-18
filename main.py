@@ -360,7 +360,7 @@ async def create_checkout_session(request: CheckoutRequest, user: User = Depends
         return JSONResponse(status_code=400, content={"error": str(e)})
 
 
-@app.post("/api/webhook")
+@app.post("/api/stripe-webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     payload = await request.body()
     sig_header = request.headers.get('stripe-signature')

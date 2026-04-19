@@ -318,6 +318,22 @@ async def create_checkout_session(request: CheckoutRequest, user: User = Depends
         }
     }
 
+    # アドオン（追加チケット）の設定
+    addon_configs = {
+        "topup_10": {
+            "price_id": os.getenv("STRIPE_PRICE_ID_TOPUP_10", "price_dummy_10"),
+            "credits": 10
+        },
+        "topup_50": {
+            "price_id": os.getenv("STRIPE_PRICE_ID_TOPUP_50", "price_dummy_50"),
+            "credits": 50
+        },
+        "topup_200": {
+            "price_id": os.getenv("STRIPE_PRICE_ID_TOPUP_200", "price_dummy_200"),
+            "credits": 200
+        }
+    }
+
     if request.plan:
         config = sub_configs.get(request.plan)
         mode = 'subscription'
@@ -336,20 +352,30 @@ async def create_checkout_session(request: CheckoutRequest, user: User = Depends
         print(f"Price ID: {config['price_id']}")
         print(f"User firebase_uid: {user.firebase_uid}")
         
-        checkout_session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
-            line_items=[{'price': config["price_id"], 'quantity': 1}],
-            mode=mode,
-            success_url=f"{FRONTEND_URL}/success?session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{FRONTEND_URL}/",
-            client_reference_id=user.firebase_uid,
-            metadata={
-                "user_id": user.id,
-                "type": mode,
-                "item_name": request.plan or request.addon,
-                "credits_to_add": config["credits"]
+        metadata = {
+            "firebase_uid": user.firebase_uid,
+            "type": mode,
+            "item_name": request.plan or request.addon,
+            "credits_to_add": str(config["credits"])  # メタデータは文字列である必要がある
+        }
+
+        session_kwargs = {
+            "payment_method_types": ['card'],
+            "line_items": [{'price': config["price_id"], 'quantity': 1}],
+            "mode": mode,
+            "success_url": f"{FRONTEND_URL}/success?session_id={{CHECKOUT_SESSION_ID}}",
+            "cancel_url": f"{FRONTEND_URL}/",
+            "client_reference_id": user.firebase_uid,
+            "metadata": metadata
+        }
+
+        # サブスクリプションの場合、メタデータをサブスクリプション自体にも伝播させる
+        if mode == 'subscription':
+            session_kwargs["subscription_data"] = {
+                "metadata": metadata
             }
-        )
+
+        checkout_session = stripe.checkout.Session.create(**session_kwargs)
         print(f"SUCCESS: Session ID: {checkout_session.id}")
         return {"url": checkout_session.url}
         
@@ -379,51 +405,56 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     # 1. 初回のサブスク開始時（または単発購入時）
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
-        # セッションを辞書形式に変換（確実に .get が使えるようにする）
-        session_dict = session.to_dict()
-        firebase_uid = session_dict.get('client_reference_id')
-        metadata = session_dict.get('metadata', {})
+        firebase_uid = session.get('client_reference_id')
+        metadata = session.get('metadata', {})
         credits_to_add = int(metadata.get('credits_to_add', 0))
         item_name = metadata.get('item_name') 
         
-        print(f"Metadata Info - firebase_uid: {firebase_uid}, credits: {credits_to_add}, item: {item_name}")
+        print(f"Webhook (session.completed) - firebase_uid: {firebase_uid}, credits: {credits_to_add}, item: {item_name}")
 
         if firebase_uid:
             user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
             if user:
                 user.credits += credits_to_add
-                # プランがサブスクリプション（pro）なら、ステータスを standard に変更
+                # プランが pro なら standard に更新
                 if item_name == 'pro':
                     user.plan = 'standard'
                 
                 db.commit()
-                print(f"SUCCESS: Updated user {firebase_uid} - New Credits: {user.credits}, Plan: {user.plan}")
+                print(f"SUCCESS: User {firebase_uid} updated - New Credits: {user.credits}, Plan: {user.plan}")
             else:
-                print(f"ERROR: User {firebase_uid} not found in database during webhook processing")
+                print(f"ERROR: User {firebase_uid} not found in DB")
         else:
-            print(f"ERROR: No client_reference_id (firebase_uid) in session")
+            print(f"ERROR: No client_reference_id in session")
 
     # 2. 2ヶ月目以降の更新支払い成功時
     elif event['type'] == 'invoice.payment_succeeded':
         invoice = event['data']['object']
-        # サブスクリプション以外（単発払いなど）は無視
-        sub_id = getattr(invoice, 'subscription', None)
+        sub_id = invoice.get('subscription')
         if not sub_id:
-            return {"status": "success"}
+            return {"status": "skipped - no subscription id"}
             
-        # サブスクリプション詳細を取得して、どのプランか判定
-        subscription = stripe.Subscription.retrieve(sub_id)
-        sub_dict = subscription.to_dict()
-        sub_metadata = sub_dict.get('metadata', {})
-        firebase_uid = sub_metadata.get('firebase_uid')
-        credits_to_add = int(sub_metadata.get('credits_to_add', 100))
+        print(f"Webhook (invoice.payment_succeeded) - sub_id: {sub_id}")
+        
+        # サブスクリプション詳細を取得してメタデータから情報を復元
+        try:
+            subscription = stripe.Subscription.retrieve(sub_id)
+            sub_metadata = subscription.get('metadata', {})
+            firebase_uid = sub_metadata.get('firebase_uid')
+            credits_to_add = int(sub_metadata.get('credits_to_add', 150)) # デフォルト150
 
-        if firebase_uid:
-            user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
-            if user:
-                user.credits += credits_to_add
-                db.commit()
-                print(f"Successfully added {credits_to_add} recurring credits to user {firebase_uid}")
+            if firebase_uid:
+                user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
+                if user:
+                    user.credits += credits_to_add
+                    db.commit()
+                    print(f"SUCCESS: Added {credits_to_add} recurring credits to user {firebase_uid}")
+                else:
+                    print(f"ERROR: User {firebase_uid} not found for subscription {sub_id}")
+            else:
+                print(f"ERROR: No firebase_uid in subscription metadata for {sub_id}")
+        except Exception as e:
+            print(f"ERROR: Failed to process recurring payment: {e}")
     
     return {"status": "success"}
 

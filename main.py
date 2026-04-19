@@ -37,9 +37,25 @@ app = FastAPI(title="PersImage SaaS - 建物パース合成")
 @app.on_event("startup")
 async def startup_event():
     import database
-    print("--- データベーステーブル作成開始 ---")
+    from sqlalchemy import text
+    print("--- データベーステーブル作成 & 更新開始 ---")
     database.Base.metadata.create_all(bind=database.engine)
-    print("--- データベーステーブル作成完了 ---")
+    
+    # SQLiteの場合のカラム追加（既存DBへのマイグレーション）
+    try:
+        with database.engine.connect() as conn:
+            # stripe_subscription_id カラムが存在するかチェック
+            result = conn.execute(text("PRAGMA table_info(users)"))
+            columns = [row[1] for row in result]
+            if "stripe_subscription_id" not in columns:
+                print("Adding missing column: stripe_subscription_id")
+                # SQLiteでカラムを追加（エラー回避のため例外処理付き）
+                conn.execute(text("ALTER TABLE users ADD COLUMN stripe_subscription_id VARCHAR"))
+                conn.commit()
+    except Exception as e:
+        print(f"Migration: stripe_subscription_id might already exist or error: {e}")
+        
+    print("--- データベース更新完了 ---")
 
 ERROR_COOLDOWN_SECONDS = 3600  # 同じエラーメールは1時間に1度のみ送信
 last_error_times = {}

@@ -24,7 +24,7 @@
                     <ul class="tier-features">
                         <li>月間 5 クレジット</li>
                     </ul>
-                    <button class="btn-plan" disabled>現在のプラン</button>
+                    <button id="plan-btn-free" class="btn-plan" disabled>現在のプラン</button>
                 </div>
 
                 <!-- Standard Plan -->
@@ -37,7 +37,7 @@
                         <li>月間 150 クレジット</li>
                         <li>作成履歴の保存 (30日間)</li>
                     </ul>
-                    <button class="btn-plan btn-plan-pro" data-plan="pro">Standardプランにアップグレード</button>
+                    <button id="plan-btn-pro" class="btn-plan btn-plan-pro" data-plan="pro">Standardプランにアップグレード</button>
                 </div>
             </div>
 
@@ -175,7 +175,31 @@
                 fetch('/api/user/sync', { method: 'POST', headers: { 'X-User-ID': user.uid } })
                     .then(res => res.json()).then(data => { 
                         if(data.credits !== undefined) document.getElementById('credit-count').textContent = data.credits; 
-                        if(data.plan !== undefined) document.getElementById('user-plan').textContent = data.plan; 
+                        if(data.plan !== undefined) {
+                            const planLabel = data.plan.toUpperCase();
+                            document.getElementById('user-plan').textContent = planLabel; 
+                            
+                            // 料金プランモーダルの表示更新
+                            const btnFree = document.getElementById('plan-btn-free');
+                            const btnPro = document.getElementById('plan-btn-pro');
+                            
+                            if (planLabel === 'STANDARD') {
+                                btnFree.textContent = '無料プラン';
+                                btnFree.disabled = false;
+                                btnFree.onclick = () => alert('現在は上位プランをご利用中です。');
+                                
+                                btnPro.textContent = '現在のプラン';
+                                btnPro.disabled = true;
+                                btnPro.classList.add('current'); // CSSでスタイル調整可能
+                            } else {
+                                btnFree.textContent = '現在のプラン';
+                                btnFree.disabled = true;
+                                
+                                btnPro.textContent = 'Standardプランにアップグレード';
+                                btnPro.disabled = false;
+                                btnPro.classList.remove('current');
+                            }
+                        }
                     });
 
                 document.getElementById('show-pricing-btn').onclick = () => pricingModal.classList.remove('hidden');

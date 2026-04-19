@@ -37,23 +37,22 @@ app = FastAPI(title="PersImage SaaS - 建物パース合成")
 @app.on_event("startup")
 async def startup_event():
     import database
-    from sqlalchemy import text
+    from sqlalchemy import inspect, text
     print("--- データベーステーブル作成 & 更新開始 ---")
     database.Base.metadata.create_all(bind=database.engine)
     
-    # SQLiteの場合のカラム追加（既存DBへのマイグレーション）
+    # データベースのマイグレーション（PostgreSQL/SQLite両対応）
     try:
-        with database.engine.connect() as conn:
-            # stripe_subscription_id カラムが存在するかチェック
-            result = conn.execute(text("PRAGMA table_info(users)"))
-            columns = [row[1] for row in result]
-            if "stripe_subscription_id" not in columns:
-                print("Adding missing column: stripe_subscription_id")
-                # SQLiteでカラムを追加（エラー回避のため例外処理付き）
+        inspector = inspect(database.engine)
+        columns = [c['name'] for c in inspector.get_columns('users')]
+        if "stripe_subscription_id" not in columns:
+            print("Adding missing column: stripe_subscription_id")
+            with database.engine.connect() as conn:
+                # PostgreSQLとSQLiteで共通の追加構文（IF NOT EXISTSは使わない）
                 conn.execute(text("ALTER TABLE users ADD COLUMN stripe_subscription_id VARCHAR"))
                 conn.commit()
     except Exception as e:
-        print(f"Migration: stripe_subscription_id might already exist or error: {e}")
+        print(f"Migration error: {e}")
         
     print("--- データベース更新完了 ---")
 

@@ -419,9 +419,13 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                 # プランが pro なら standard に更新
                 if item_name == 'pro':
                     user.plan = 'standard'
+                    # サブスクリプションIDを保存（後の解約用）
+                    sub_id = session.get('subscription')
+                    if sub_id:
+                        user.stripe_subscription_id = sub_id
                 
                 db.commit()
-                print(f"SUCCESS: User {firebase_uid} updated - New Credits: {user.credits}, Plan: {user.plan}")
+                print(f"SUCCESS: User {firebase_uid} updated - New Credits: {user.credits}, Plan: {user.plan}, SubID: {user.stripe_subscription_id}")
             else:
                 print(f"ERROR: User {firebase_uid} not found in DB")
         else:
@@ -457,6 +461,28 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             print(f"ERROR: Failed to process recurring payment: {e}")
     
     return {"status": "success"}
+
+@app.post("/api/user/downgrade")
+async def downgrade_user(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+    
+    # 無料プランに変更（クレジットはそのまま保持される）
+    user.plan = 'free'
+    
+    # Stripeのサブスクリプションがあれば解約予約（期間終了時に停止）
+    if user.stripe_subscription_id:
+        try:
+            stripe.Subscription.modify(
+                user.stripe_subscription_id,
+                cancel_at_period_end=True
+            )
+            print(f"Stripe subscription {user.stripe_subscription_id} set to cancel at period end.")
+        except Exception as e:
+            print(f"Stripe cancellation warning: {e}")
+
+    db.commit()
+    return {"status": "success", "message": "無料プランに変更されました。現在の期間終了後に自動更新が停止します。"}
 
 @app.post("/api/add-credits")
 async def add_credits(user: User = Depends(get_current_user), db: Session = Depends(get_db)):

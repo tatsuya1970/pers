@@ -184,9 +184,23 @@
                             const btnPro = document.getElementById('plan-btn-pro');
                             
                             if (planLabel === 'STANDARD') {
-                                btnFree.textContent = '無料プラン';
-                                btnFree.disabled = false;
-                                btnFree.onclick = () => alert('現在は上位プランをご利用中です。');
+                                btnFree.onclick = () => {
+                                    if(confirm('無料プランに変更しますか？（現在のクレジットは保持されますが、次回の自動更新は行われません）')) {
+                                        fetch('/api/user/downgrade', { 
+                                            method: 'POST', 
+                                            headers: { 'X-User-ID': user.uid } 
+                                        })
+                                        .then(res => res.json())
+                                        .then(data => {
+                                            if(data.status === 'success') {
+                                                alert('無料プランに変更しました。');
+                                                window.location.reload();
+                                            } else {
+                                                alert('変更に失敗しました。');
+                                            }
+                                        });
+                                    }
+                                };
                                 
                                 btnPro.textContent = '現在のプラン';
                                 btnPro.disabled = true;

@@ -32,6 +32,7 @@ class User(Base):
     firebase_uid = Column(String, unique=True, index=True)
     plan = Column(String, default="free")  # free, standard
     credits = Column(Integer, default=5)
+    stripe_subscription_id = Column(String, nullable=True) # 解約制御用に保持
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
     images = relationship("GeneratedImage", back_populates="owner")

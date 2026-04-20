@@ -184,6 +184,8 @@
                             const btnPro = document.getElementById('plan-btn-pro');
                             
                             if (planLabel === 'STANDARD') {
+                                btnFree.disabled = false;
+                                btnFree.textContent = '無料プランに変更';
                                 btnFree.onclick = () => {
                                     if(confirm('無料プランに変更しますか？（現在のクレジットは保持されますが、次回の自動更新は行われません）')) {
                                         fetch('/api/user/downgrade', { 

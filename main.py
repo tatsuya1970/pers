@@ -48,8 +48,12 @@ async def startup_event():
         if "stripe_subscription_id" not in columns:
             print("Adding missing column: stripe_subscription_id")
             with database.engine.connect() as conn:
-                # PostgreSQLとSQLiteで共通の追加構文（IF NOT EXISTSは使わない）
                 conn.execute(text("ALTER TABLE users ADD COLUMN stripe_subscription_id VARCHAR"))
+                conn.commit()
+        if "addon_credits" not in columns:
+            print("Adding missing column: addon_credits")
+            with database.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN addon_credits INTEGER DEFAULT 0"))
                 conn.commit()
     except Exception as e:
         print(f"Migration error: {e}")
@@ -144,7 +148,8 @@ async def sync_user(db: Session = Depends(get_db), x_user_id: str = Header(None)
         db.refresh(user)
     else:
         print(f"既存ユーザー確認: {x_user_id}, プラン: {user.plan}, クレジット: {user.credits}")
-    return {"status": "success", "credits": user.credits, "plan": user.plan.upper()}
+    addon = user.addon_credits if user.addon_credits is not None else 0
+    return {"status": "success", "credits": user.credits, "addon_credits": addon, "plan": user.plan.upper()}
 
 @app.get("/api/gallery")
 async def get_gallery(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -189,16 +194,20 @@ async def sketch_to_real(
     if not OPENAI_API_KEY or OPENAI_API_KEY == "ここにOpenAIのAPIキーを貼り付けてください":
         return JSONResponse(status_code=500, content={"error": "OPENAI_API_KEYがバックエンドに設定されていません"})
         
-    if not user or user.credits <= 0:
+    total = user.credits + (user.addon_credits or 0)
+    if not user or total <= 0:
         return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
-        
+
     try:
         contents = await file.read()
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
         # 既存のロジックをそのまま利用
         result_img = ImageProcessor.sketch_to_realistic(img, api_token=OPENAI_API_KEY)
-        
-        user.credits -= 1
+
+        if user.credits > 0:
+            user.credits -= 1
+        else:
+            user.addon_credits -= 1
         save_generated_image_to_db(user.id, result_img, db)
         db.commit()
         
@@ -221,15 +230,19 @@ async def edit_instruction(
     if not OPENAI_API_KEY or OPENAI_API_KEY == "ここにOpenAIのAPIキーを貼り付けてください":
         return JSONResponse(status_code=500, content={"error": "OPENAI_API_KEYがバックエンドに設定されていません"})
         
-    if not user or user.credits <= 0:
+    total = user.credits + (user.addon_credits or 0)
+    if not user or total <= 0:
         return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
-        
+
     try:
         contents = await file.read()
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
         result_img = ImageProcessor.edit_by_instruction(img, instruction, api_token=OPENAI_API_KEY)
-        
-        user.credits -= 1
+
+        if user.credits > 0:
+            user.credits -= 1
+        else:
+            user.addon_credits -= 1
         save_generated_image_to_db(user.id, result_img, db)
         db.commit()
         
@@ -258,19 +271,20 @@ async def blend_endpoint(
     if not OPENAI_API_KEY or OPENAI_API_KEY == "ここにOpenAIのAPIキーを貼り付けてください":
         return JSONResponse(status_code=500, content={"error": "OPENAI_API_KEYがバックエンドに設定されていません"})
         
-    if not user or user.credits <= 0:
+    total = user.credits + (user.addon_credits or 0)
+    if not user or total <= 0:
         return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
-    
+
     try:
         bg_contents = await bg_file.read()
         bld_contents = await bld_file.read()
         bg_img = Image.open(io.BytesIO(bg_contents)).convert("RGBA")
         bld_img = Image.open(io.BytesIO(bld_contents)).convert("RGBA")
-        
+
         if is_sketch:
             print("Converting sketch to realistic before blending...")
             bld_img = ImageProcessor.sketch_to_realistic(bld_img, api_token=OPENAI_API_KEY)
-            
+
         result_img = ImageProcessor.blend_building(
             background=bg_img,
             building=bld_img,
@@ -281,8 +295,11 @@ async def blend_endpoint(
             angle=angle,
             api_token=OPENAI_API_KEY
         )
-        
-        user.credits -= 1
+
+        if user.credits > 0:
+            user.credits -= 1
+        else:
+            user.addon_credits -= 1
         save_generated_image_to_db(user.id, result_img, db)
         db.commit()
         
@@ -430,17 +447,19 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         if firebase_uid:
             user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
             if user:
-                user.credits += credits_to_add
-                # プランが pro なら standard に更新
                 if item_name == 'pro':
+                    # サブスク初回: クレジットをリセット付与・プラン更新
+                    user.credits = credits_to_add
                     user.plan = 'standard'
-                    # サブスクリプションIDを保存（後の解約用）
                     sub_id = session.get('subscription')
                     if sub_id:
                         user.stripe_subscription_id = sub_id
-                
+                else:
+                    # アドオン単発購入: addon_credits に加算
+                    user.addon_credits = (user.addon_credits or 0) + credits_to_add
+
                 db.commit()
-                print(f"SUCCESS: User {firebase_uid} updated - New Credits: {user.credits}, Plan: {user.plan}, SubID: {user.stripe_subscription_id}")
+                print(f"SUCCESS: User {firebase_uid} updated - Credits: {user.credits}, Addon: {user.addon_credits}, Plan: {user.plan}")
             else:
                 print(f"ERROR: User {firebase_uid} not found in DB")
         else:
@@ -465,9 +484,10 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             if firebase_uid:
                 user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
                 if user:
-                    user.credits += credits_to_add
+                    # 毎月リセット: サブスク分は繰り越しせず上書き
+                    user.credits = credits_to_add
                     db.commit()
-                    print(f"SUCCESS: Added {credits_to_add} recurring credits to user {firebase_uid}")
+                    print(f"SUCCESS: Reset credits to {credits_to_add} for user {firebase_uid} (monthly renewal)")
                 else:
                     print(f"ERROR: User {firebase_uid} not found for subscription {sub_id}")
             else:

@@ -55,6 +55,11 @@ async def startup_event():
             with database.engine.connect() as conn:
                 conn.execute(text("ALTER TABLE users ADD COLUMN addon_credits INTEGER DEFAULT 0"))
                 conn.commit()
+        if "last_session_id" not in columns:
+            print("Adding missing column: last_session_id")
+            with database.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN last_session_id VARCHAR"))
+                conn.commit()
     except Exception as e:
         print(f"Migration error: {e}")
         
@@ -335,6 +340,55 @@ async def match_color_endpoint(
 async def read_success():
     with open("static/success.html", "r", encoding="utf-8") as f:
         return f.read()
+
+@app.post("/api/verify-payment")
+async def verify_payment(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Stripe session_idで支払いを確認し、DBを直接更新する（webhook遅延の補完）"""
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+
+    body = await request.json()
+    session_id = body.get("session_id")
+    if not session_id:
+        return JSONResponse(status_code=400, content={"error": "session_id required"})
+
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+    # 支払い未完了は無視
+    if session.get("payment_status") not in ("paid", "no_payment_required"):
+        return {"status": "pending"}
+
+    metadata = session.get("metadata", {})
+    credits_to_add = int(metadata.get("credits_to_add", 0))
+    item_name = metadata.get("item_name")
+
+    # 二重付与防止: session_idを確認済みとして記録
+    already_processed = db.query(User).filter(
+        User.firebase_uid == user.firebase_uid,
+        User.last_session_id == session_id
+    ).first()
+    if already_processed:
+        addon = user.addon_credits if user.addon_credits is not None else 0
+        return {"status": "already_processed", "credits": user.credits, "addon_credits": addon}
+
+    if item_name == "pro":
+        user.credits = credits_to_add
+        user.plan = "standard"
+        sub_id = session.get("subscription")
+        if sub_id:
+            user.stripe_subscription_id = sub_id
+    else:
+        user.addon_credits = (user.addon_credits or 0) + credits_to_add
+
+    user.last_session_id = session_id
+    db.commit()
+    db.refresh(user)
+    addon = user.addon_credits if user.addon_credits is not None else 0
+    print(f"verify-payment: user={user.firebase_uid}, item={item_name}, credits={user.credits}, addon={addon}")
+    return {"status": "success", "credits": user.credits, "addon_credits": addon}
 
 class CheckoutRequest(BaseModel):
     plan: str = None

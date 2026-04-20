@@ -112,11 +112,38 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
 
-        onAuthStateChanged(auth, async (user) => {
-            // Webhookの反映を待つための待機
-            setTimeout(() => {
-                window.location.href = "/";
-            }, 3000);
+        onAuthStateChanged(auth, async (firebaseUser) => {
+            if (!firebaseUser) {
+                setTimeout(() => { window.location.href = "/"; }, 3000);
+                return;
+            }
+
+            const params = new URLSearchParams(window.location.search);
+            const sessionId = params.get("session_id");
+
+            if (sessionId) {
+                try {
+                    const res = await fetch("/api/verify-payment", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "X-User-ID": firebaseUser.uid
+                        },
+                        body: JSON.stringify({ session_id: sessionId })
+                    });
+                    const data = await res.json();
+                    if (data.status === "success") {
+                        const isAddon = data.addon_credits > 0;
+                        document.getElementById("message").innerHTML = isAddon
+                            ? `追加クレジットを付与しました。<br>自動的にホーム画面に戻ります...`
+                            : `プランをアップグレードしました。<br>自動的にホーム画面に戻ります...`;
+                    }
+                } catch (e) {
+                    console.error("verify-payment error:", e);
+                }
+            }
+
+            setTimeout(() => { window.location.href = "/"; }, 3000);
         });
     </script>
 </body>

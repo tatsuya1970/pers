@@ -358,12 +358,12 @@ async def verify_payment(request: Request, user: User = Depends(get_current_user
         return JSONResponse(status_code=400, content={"error": str(e)})
 
     # 支払い未完了は無視
-    if session.get("payment_status") not in ("paid", "no_payment_required"):
+    if session.payment_status not in ("paid", "no_payment_required"):
         return {"status": "pending"}
 
-    metadata = session.get("metadata", {})
-    credits_to_add = int(metadata.get("credits_to_add", 0))
-    item_name = metadata.get("item_name")
+    metadata = session.metadata or {}
+    credits_to_add = int(getattr(metadata, 'credits_to_add', None) or 0)
+    item_name = getattr(metadata, 'item_name', None)
 
     # 二重付与防止: session_idを確認済みとして記録
     already_processed = db.query(User).filter(
@@ -377,7 +377,7 @@ async def verify_payment(request: Request, user: User = Depends(get_current_user
     if item_name == "pro":
         user.credits = credits_to_add
         user.plan = "standard"
-        sub_id = session.get("subscription")
+        sub_id = getattr(session, 'subscription', None)
         if sub_id:
             user.stripe_subscription_id = sub_id
     else:
@@ -491,11 +491,11 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     # 1. 初回のサブスク開始時（または単発購入時）
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
-        firebase_uid = session.get('client_reference_id')
-        metadata = session.get('metadata', {})
-        credits_to_add = int(metadata.get('credits_to_add', 0))
-        item_name = metadata.get('item_name') 
-        
+        firebase_uid = getattr(session, 'client_reference_id', None)
+        metadata = getattr(session, 'metadata', None) or {}
+        credits_to_add = int(getattr(metadata, 'credits_to_add', None) or 0)
+        item_name = getattr(metadata, 'item_name', None)
+
         print(f"Webhook (session.completed) - firebase_uid: {firebase_uid}, credits: {credits_to_add}, item: {item_name}")
 
         if firebase_uid:
@@ -505,7 +505,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                     # サブスク初回: クレジットをリセット付与・プラン更新
                     user.credits = credits_to_add
                     user.plan = 'standard'
-                    sub_id = session.get('subscription')
+                    sub_id = getattr(session, 'subscription', None)
                     if sub_id:
                         user.stripe_subscription_id = sub_id
                 else:
@@ -522,18 +522,18 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     # 2. 2ヶ月目以降の更新支払い成功時
     elif event['type'] == 'invoice.payment_succeeded':
         invoice = event['data']['object']
-        sub_id = invoice.get('subscription')
+        sub_id = getattr(invoice, 'subscription', None)
         if not sub_id:
             return {"status": "skipped - no subscription id"}
-            
+
         print(f"Webhook (invoice.payment_succeeded) - sub_id: {sub_id}")
-        
+
         # サブスクリプション詳細を取得してメタデータから情報を復元
         try:
             subscription = stripe.Subscription.retrieve(sub_id)
-            sub_metadata = subscription.get('metadata', {})
-            firebase_uid = sub_metadata.get('firebase_uid')
-            credits_to_add = int(sub_metadata.get('credits_to_add', 150)) # デフォルト150
+            sub_metadata = getattr(subscription, 'metadata', None) or {}
+            firebase_uid = getattr(sub_metadata, 'firebase_uid', None)
+            credits_to_add = int(getattr(sub_metadata, 'credits_to_add', None) or 150)
 
             if firebase_uid:
                 user = db.query(User).filter(User.firebase_uid == firebase_uid).first()

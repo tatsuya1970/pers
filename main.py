@@ -501,19 +501,25 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         if firebase_uid:
             user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
             if user:
-                if item_name == 'pro':
-                    # サブスク初回: クレジットをリセット付与・プラン更新
-                    user.credits = credits_to_add
-                    user.plan = 'standard'
-                    sub_id = getattr(session, 'subscription', None)
-                    if sub_id:
-                        user.stripe_subscription_id = sub_id
+                # 二重付与防止: verify-payment で処理済みならスキップ
+                session_id = getattr(session, 'id', None)
+                if session_id and user.last_session_id == session_id:
+                    print(f"SKIPPED: session {session_id} already processed by verify-payment")
                 else:
-                    # アドオン単発購入: addon_credits に加算
-                    user.addon_credits = (user.addon_credits or 0) + credits_to_add
+                    if item_name == 'pro':
+                        # サブスク初回: クレジットをリセット付与・プラン更新
+                        user.credits = credits_to_add
+                        user.plan = 'standard'
+                        sub_id = getattr(session, 'subscription', None)
+                        if sub_id:
+                            user.stripe_subscription_id = sub_id
+                    else:
+                        # アドオン単発購入: addon_credits に加算
+                        user.addon_credits = (user.addon_credits or 0) + credits_to_add
 
-                db.commit()
-                print(f"SUCCESS: User {firebase_uid} updated - Credits: {user.credits}, Addon: {user.addon_credits}, Plan: {user.plan}")
+                    user.last_session_id = session_id
+                    db.commit()
+                    print(f"SUCCESS: User {firebase_uid} updated - Credits: {user.credits}, Addon: {user.addon_credits}, Plan: {user.plan}")
             else:
                 print(f"ERROR: User {firebase_uid} not found in DB")
         else:

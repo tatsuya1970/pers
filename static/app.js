@@ -114,7 +114,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const addPhotoBtn = document.getElementById('add-photo-btn');
     if (addPhotoBtn) {
-        addPhotoBtn.addEventListener('click', () => photoInput.click());
+        addPhotoBtn.addEventListener('click', () => {
+            if (addPhotoBtn.disabled || !fCanvas.backgroundImage) return;
+            photoInput.click();
+        });
     }
 
     photoInput.addEventListener('change', async (e) => {
@@ -151,11 +154,14 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.appendChild(sketchInput);
 
     if (sketchBtn) {
-        sketchBtn.addEventListener('click', () => sketchInput.click());
+        sketchBtn.addEventListener('click', () => {
+            if (sketchBtn.disabled || !fCanvas.backgroundImage) return;
+            sketchInput.click();
+        });
     }
 
     sketchInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
+        if (e.target.files.length > 0 && fCanvas.backgroundImage) {
             const reader = new FileReader();
             reader.onload = (ev) => {
                 fabric.Image.fromURL(ev.target.result, (img) => {
@@ -183,6 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const instructInput = document.querySelector('.textarea');
     if (instructBtn && instructInput) {
         instructBtn.addEventListener('click', async () => {
+            if (instructBtn.disabled || !fCanvas.backgroundImage) return;
             const text = instructInput.value.trim();
             if (!text || !fCanvas.backgroundImage) return;
 

@@ -21,6 +21,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (disabled) clickBlocker.classList.add('active');
             else clickBlocker.classList.remove('active');
         }
+        if (!disabled) {
+            if (typeof updateFeatureButtonsState === 'function') updateFeatureButtonsState();
+            const undoBtn = document.getElementById('undo-btn');
+            if (undoBtn && typeof canvasHistory !== 'undefined') {
+                undoBtn.disabled = (canvasHistory.length <= 1);
+            }
+        }
     }
 
     const dataUrlToBlob = async (url) => (await fetch(url)).blob();
@@ -36,6 +43,22 @@ document.addEventListener('DOMContentLoaded', () => {
         fCanvas.setWidth(wrapper.clientWidth * 0.9);
         fCanvas.setHeight(wrapper.clientHeight * 0.9);
     }
+
+    function updateFeatureButtonsState() {
+        const hasBg = !!fCanvas.backgroundImage;
+        const addPhotoBtn = document.getElementById('add-photo-btn');
+        const addSketchBtn = document.getElementById('add-sketch-btn');
+        const instructBtn = document.getElementById('ai-instruct-btn');
+        const instructInput = document.querySelector('.textarea');
+        const exportBtn = document.getElementById('export-btn');
+
+        if (addPhotoBtn) addPhotoBtn.disabled = !hasBg;
+        if (addSketchBtn) addSketchBtn.disabled = !hasBg;
+        if (instructBtn) instructBtn.disabled = !hasBg;
+        if (instructInput) instructInput.disabled = !hasBg;
+        if (exportBtn) exportBtn.disabled = !hasBg;
+    }
+    updateFeatureButtonsState();
 
     let originalBgBlob = null;
 
@@ -63,6 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 crossOrigin: 'anonymous'
             });
             saveHistory();
+            updateFeatureButtonsState();
         });
     }
 
@@ -220,6 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 fCanvas.renderAll();
                 isUndoing = false;
                 undoBtn.disabled = (canvasHistory.length <= 1);
+                updateFeatureButtonsState();
             });
         });
     }

@@ -361,7 +361,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- ギャラリー ---
+    // --- ギャラリー (機能停止中) ---
+    /*
     const openGalleryBtn = document.getElementById('open-gallery-btn');
     const closeGalleryBtn = document.getElementById('close-gallery-btn');
     const galleryOverlay = document.getElementById('gallery-overlay');
@@ -393,6 +394,7 @@ document.addEventListener('DOMContentLoaded', () => {
             galleryOverlay.style.display = 'none';
         });
     }
+    */
 
     // --- 決済ロジック ---
     async function handleCheckout(params) {

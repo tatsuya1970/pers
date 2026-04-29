@@ -51,12 +51,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const instructBtn = document.getElementById('ai-instruct-btn');
         const instructInput = document.querySelector('.textarea');
         const exportBtn = document.getElementById('export-btn');
+        const blendBtn = document.getElementById('blend-btn');
 
         if (addPhotoBtn) addPhotoBtn.disabled = !hasBg;
         if (addSketchBtn) addSketchBtn.disabled = !hasBg;
         if (instructBtn) instructBtn.disabled = !hasBg;
         if (instructInput) instructInput.disabled = !hasBg;
         if (exportBtn) exportBtn.disabled = !hasBg;
+        if (blendBtn) blendBtn.disabled = !hasBg;
     }
     updateFeatureButtonsState();
 
@@ -183,6 +185,94 @@ document.addEventListener('DOMContentLoaded', () => {
             reader.readAsDataURL(e.target.files[0]);
         }
     });
+
+    // --- 背景に馴染ませる ---
+    const blendBtn = document.getElementById('blend-btn');
+    if (blendBtn) {
+        blendBtn.addEventListener('click', async () => {
+            const obj = fCanvas.getActiveObject();
+            if (!obj) { 
+                addLog('合成する建物（レイヤー）を選択状態でクリックしてください。', 'warn'); 
+                alert('合成する建物（レイヤー）を選択状態でクリックしてください。');
+                return; 
+            }
+            if (!fCanvas.backgroundImage) { addLog('背景が設定されていません。', 'warn'); return; }
+
+            setControlsDisabled(true);
+            if (loadingOverlay) {
+                loadingOverlay.querySelector('p').textContent = '背景に馴染ませ中...';
+                loadingOverlay.classList.remove('hidden');
+            }
+            addLog('馴染ませ処理を実行中（OpenAIによる仕上げ）...', 'info');
+
+            try {
+                const objData = obj.toDataURL({ format: 'png', multiplier: 1 });
+                const objBlob = await dataUrlToBlob(objData);
+
+                const cx = obj.left;
+                const cy = obj.top;
+                const scaledWidth = obj.getScaledWidth();
+                const scaledHeight = obj.getScaledHeight();
+                const angle = obj.angle;
+
+                const formData = new FormData();
+
+                obj.set('visible', false);
+                fCanvas.discardActiveObject();
+                fCanvas.renderAll();
+
+                const multiplier = 1 / fCanvas.getZoom();
+                const currentBgBlob = await dataUrlToBlob(fCanvas.toDataURL({ format: 'png', multiplier: multiplier }));
+
+                obj.set('visible', true);
+                fCanvas.setActiveObject(obj);
+                fCanvas.renderAll();
+
+                formData.append('bg_file', currentBgBlob, 'bg.png');
+                formData.append('bld_file', objBlob, 'bld.png');
+                formData.append('cx', cx);
+                formData.append('cy', cy);
+                formData.append('width', scaledWidth);
+                formData.append('height', scaledHeight);
+                formData.append('angle', angle);
+                formData.append('is_sketch', obj.isSketchLayer ? 'true' : 'false');
+
+                const uid = window.currentUserUID;
+                const res = await fetch('/api/blend', {
+                    method: 'POST',
+                    body: formData,
+                    headers: uid ? { 'X-User-ID': uid } : {}
+                });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+
+                if (data.credits_remaining !== undefined) {
+                    const cd = document.getElementById('credit-count');
+                    if (cd) cd.textContent = data.credits_remaining;
+                }
+
+                setBackgroundFromURL(data.image_base64, false);
+                fCanvas.remove(obj);
+                addLog('馴染ませ完了！建物が背景と一体化しました。', 'info');
+            } catch (err) {
+                addLog('エラー: ' + err.message, 'error');
+                if (err.message.includes('チケット') || err.message.includes('クレジット')) {
+                    if (confirm('クレジット残高が不足しています。購入画面を開きますか？')) {
+                        const pricingModal = document.getElementById('pricing-modal');
+                        if (pricingModal) pricingModal.classList.remove('hidden');
+                    }
+                } else {
+                    alert('エラー: ' + err.message);
+                }
+            } finally {
+                setControlsDisabled(false);
+                if (loadingOverlay) {
+                    loadingOverlay.classList.add('hidden');
+                    loadingOverlay.querySelector('p').textContent = '処理中...';
+                }
+            }
+        });
+    }
 
     // --- AI編集指示 ---
     const instructBtn = document.getElementById('ai-instruct-btn');

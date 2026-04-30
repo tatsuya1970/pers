@@ -104,6 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 reader.onload = (ev) => setBackgroundFromURL(ev.target.result, true);
                 reader.readAsDataURL(originalBgBlob);
             }
+            e.target.value = '';
         });
     }
 
@@ -142,9 +143,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             };
             reader.readAsDataURL(file);
-        } else if (!fCanvas.backgroundImage) {
+        } else if (!fCanvas.backgroundImage && e.target.files.length > 0) {
             alert('先に背景をアップロードしてください。');
         }
+        e.target.value = '';
     });
 
     // --- イラスト変換 ---
@@ -184,6 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             reader.readAsDataURL(e.target.files[0]);
         }
+        e.target.value = '';
     });
 
     // --- 背景に馴染ませる ---

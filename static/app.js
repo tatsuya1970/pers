@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- UI要素 ---
     const wrapper = document.getElementById('canvas-wrapper');
+    const workspace = document.getElementById('canvas-workspace');
     const loadingOverlay = document.getElementById('loading-overlay');
     const clickBlocker = document.getElementById('click-blocker');
 
@@ -52,6 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const instructInput = document.querySelector('.textarea');
         const exportBtn = document.getElementById('export-btn');
         const blendBtn = document.getElementById('blend-btn');
+        const clearBtn = document.getElementById('clear-btn');
 
         if (addPhotoBtn) addPhotoBtn.disabled = !hasBg;
         if (addSketchBtn) addSketchBtn.disabled = !hasBg;
@@ -59,6 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (instructInput) instructInput.disabled = !hasBg;
         if (exportBtn) exportBtn.disabled = !hasBg;
         if (blendBtn) blendBtn.disabled = !hasBg;
+        if (clearBtn) clearBtn.disabled = !hasBg && fCanvas.getObjects().length === 0;
     }
     updateFeatureButtonsState();
 
@@ -66,27 +69,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 背景セットヘルパー
     function setBackgroundFromURL(url, updateCanvasSize = false) {
+        // ステータスメッセージを即座に消す
+        const statusMsg = document.getElementById('status-msg');
+        if (statusMsg) statusMsg.textContent = '';
+
         fabric.Image.fromURL(url, (img) => {
             if (updateCanvasSize && wrapper) {
                 const scale = Math.min(
                     (wrapper.clientWidth * 0.9) / img.width,
                     (wrapper.clientHeight * 0.9) / img.height
                 );
-                if (scale < 1) {
-                    fCanvas.setZoom(scale);
-                    fCanvas.setWidth(img.width * scale);
-                    fCanvas.setHeight(img.height * scale);
-                } else {
-                    fCanvas.setZoom(1);
-                    fCanvas.setWidth(img.width);
-                    fCanvas.setHeight(img.height);
-                }
+                // 常にスケールを適用（小さい画像は拡大、大きい画像は縮小して枠に収める）
+                fCanvas.setZoom(scale);
+                fCanvas.setWidth(img.width * scale);
+                fCanvas.setHeight(img.height * scale);
             }
             fCanvas.setBackgroundImage(img, fCanvas.renderAll.bind(fCanvas), {
                 originX: 'left',
                 originY: 'top',
                 crossOrigin: 'anonymous'
             });
+
             saveHistory();
             updateFeatureButtonsState();
         });
@@ -203,10 +206,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             setControlsDisabled(true);
             if (loadingOverlay) {
-                loadingOverlay.querySelector('p').textContent = '背景に馴染ませ中...';
+                loadingOverlay.querySelector('p').textContent = '背景に合成中...';
                 loadingOverlay.classList.remove('hidden');
             }
-            addLog('馴染ませ処理を実行中（OpenAIによる仕上げ）...', 'info');
+            addLog('合成処理を実行中...', 'info');
 
             try {
                 const objData = obj.toDataURL({ format: 'png', multiplier: 1 });
@@ -288,7 +291,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             setControlsDisabled(true);
             if (loadingOverlay) {
-                loadingOverlay.querySelector('p').textContent = 'AIによる指示を実行中...';
+                loadingOverlay.querySelector('p').textContent = '処理を実行中...';
                 loadingOverlay.classList.remove('hidden');
             }
 
@@ -332,6 +335,7 @@ document.addEventListener('DOMContentLoaded', () => {
         canvasHistory.push(JSON.stringify(fCanvas.toJSON(['isSketchLayer'])));
         if (canvasHistory.length > 20) canvasHistory.shift();
         if (undoBtn) undoBtn.disabled = (canvasHistory.length <= 1);
+        updateFeatureButtonsState();
     }
 
     if (undoBtn) {
@@ -348,6 +352,39 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
     }
+
+    // --- クリア ---
+    const clearBtn = document.getElementById('clear-btn');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            if (!confirm('全ての写真と背景をクリアしてよろしいですか？')) return;
+            
+            fCanvas.clear();
+            fCanvas.backgroundImage = null;
+            
+            // ズームと位置をリセット
+            fCanvas.setZoom(1);
+            fCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+            
+            // キャンバスサイズを初期サイズに戻す
+            if (wrapper) {
+                fCanvas.setWidth(wrapper.clientWidth * 0.9);
+                fCanvas.setHeight(wrapper.clientHeight * 0.9);
+            }
+            
+            fCanvas.renderAll();
+            
+            originalBgBlob = null;
+            canvasHistory = [];
+            
+            const statusMsg = document.getElementById('status-msg');
+            if (statusMsg) statusMsg.textContent = '背景写真をアップロードしてください';
+            
+            saveHistory();
+            updateFeatureButtonsState();
+        });
+    }
+
     fCanvas.on('object:modified', saveHistory);
 
     // --- PNG保存 ---
@@ -359,7 +396,9 @@ document.addEventListener('DOMContentLoaded', () => {
             fCanvas.renderAll();
             const link = document.createElement('a');
             link.download = 'pers_export.png';
-            link.href = fCanvas.toDataURL({ format: 'png', multiplier: 1 / fCanvas.getZoom() });
+            // 元の解像度を維持、ただしズームアップしている場合は現在の表示サイズで出力
+            const multiplier = Math.max(1, 1 / fCanvas.getZoom());
+            link.href = fCanvas.toDataURL({ format: 'png', multiplier: multiplier });
             link.click();
         });
     }
@@ -423,4 +462,52 @@ document.addEventListener('DOMContentLoaded', () => {
         const aBtn = e.target.closest('.btn-addon[data-addon]');
         if (aBtn) return handleCheckout({ addon: aBtn.getAttribute('data-addon') });
     });
+
+    // --- ドラッグ＆ドロップ ---
+    if (workspace) {
+        workspace.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            workspace.classList.add('drag-over');
+        });
+        workspace.addEventListener('dragleave', () => {
+            workspace.classList.remove('drag-over');
+        });
+        workspace.addEventListener('drop', (e) => {
+            e.preventDefault();
+            workspace.classList.remove('drag-over');
+            if (e.dataTransfer.files.length > 0) {
+                const file = e.dataTransfer.files[0];
+                if (file.type.startsWith('image/')) {
+                    if (!fCanvas.backgroundImage) {
+                        originalBgBlob = file;
+                        const reader = new FileReader();
+                        reader.onload = (ev) => setBackgroundFromURL(ev.target.result, true);
+                        reader.readAsDataURL(file);
+                    } else {
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                            fabric.Image.fromURL(ev.target.result, (img) => {
+                                const lw = fCanvas.getWidth() / fCanvas.getZoom();
+                                const lh = fCanvas.getHeight() / fCanvas.getZoom();
+                                img.set({
+                                    left: lw / 2, top: lh / 2,
+                                    originX: 'center', originY: 'center',
+                                    cornerColor: '#3b82f6', transparentCorners: false
+                                });
+                                if (img.width > lw * 0.5) img.scaleToWidth(lw * 0.5);
+                                fCanvas.add(img);
+                                fCanvas.setActiveObject(img);
+                                saveHistory();
+                            });
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                }
+            }
+        });
+    }
+
+    // 初期ステータス
+    const statusMsg = document.getElementById('status-msg');
+    if (statusMsg) statusMsg.textContent = '背景写真をアップロードしてください';
 });

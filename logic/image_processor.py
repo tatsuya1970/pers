@@ -210,7 +210,8 @@ class ImageProcessor:
         )
 
         img_data = base64.b64decode(response.data[0].b64_json)
-        return Image.open(io.BytesIO(img_data)).convert("RGBA")
+        result_img = Image.open(io.BytesIO(img_data)).convert("RGBA")
+        return result_img.resize(pil_image.size, Image.Resampling.LANCZOS)
 
     # ──────────────────────────────────────────
     # 建物を背景に馴染ませる（ポアソンブレンディング → OpenAI で仕上げ）
@@ -321,7 +322,8 @@ class ImageProcessor:
             )
 
             img_data = base64.b64decode(response.data[0].b64_json)
-            return Image.open(io.BytesIO(img_data)).convert("RGBA")
+            result_img = Image.open(io.BytesIO(img_data)).convert("RGBA")
+            return result_img.resize(rough.size, Image.Resampling.LANCZOS)
 
         return rough
 

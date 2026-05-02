@@ -3,156 +3,164 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PersImage SaaS - パース合成ツール</title>
-    <link rel="stylesheet" href="/static/style.css?v=1.1">
+    <title>PersImage - パース合成システム</title>
+    <link rel="stylesheet" href="/static/style.css?v=3.0">
     <link rel="icon" type="image/png" href="/static/logo.png">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <!-- 料金プランモーダル -->
-    <div id="pricing-modal" class="pricing-overlay hidden">
-        <div class="login-modal" style="max-width: 950px; width: 95%; padding: 40px;">
-            <div id="close-pricing-btn" style="position: absolute; top: 20px; right: 20px; cursor: pointer; color: var(--text-secondary); font-size: 24px;">✕</div>
-            <h2 class="pricing-title">料金プラン</h2>
+    <!-- App Shell -->
+    <div class="app-shell">
+        <!-- Top Header -->
+        <header class="top-header">
+            <div class="brand">
+                <div class="brand-logo">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+                </div>
+                <h1 class="brand-name">PersImage</h1>
+                <div id="status-msg" class="status-msg" style="margin-left: 16px; font-size: 12px; font-weight: 500;"></div>
+            </div>
+
+            <div class="user-actions">
+                <div id="user-info" class="hidden" style="display: flex; align-items: center; gap: 12px;">
+                    <div class="credits-badge">
+                        <span id="credit-count">--</span> クレジット
+                    </div>
+                    <button id="show-pricing-btn" class="btn-ghost" style="font-size: 11px; font-weight: 700; text-decoration: underline;">プラン管理</button>
+                    <div class="divider"></div>
+                    <button id="logout-btn" class="btn-ghost btn-danger" style="font-size: 11px;">ログアウト</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Body -->
+        <div class="main-body">
+            <!-- Side Panel (Controls) -->
+            <aside class="side-panel">
+                <!-- Background Section -->
+                <section class="panel-section">
+                    <h3 class="section-title">背景設定</h3>
+                    <button id="open-bg-btn" class="btn">
+                        背景写真を読み込む
+                    </button>
+                    <input type="file" id="bg-input" accept="image/*" class="hidden">
+                </section>
+
+                <!-- Objects Section -->
+                <section class="panel-section">
+                    <h3 class="section-title">要素の追加</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <button id="add-photo-btn" class="btn" style="flex-direction: column; padding: 12px 0;">
+                            写真
+                        </button>
+                        <button id="add-sketch-btn" class="btn" style="flex-direction: column; padding: 12px 0;">
+                            イラスト
+                        </button>
+                    </div>
+                    <button id="blend-btn" class="btn btn-primary" style="margin-top: 4px;">
+                        背景に合成
+                    </button>
+                </section>
+
+                <!-- Edit Section -->
+                <section class="panel-section">
+                    <h3 class="section-title">画像加工 / 指示</h3>
+                    <textarea class="textarea" placeholder="例：空を夕方にする、木を増やす..."></textarea>
+                    <button id="ai-instruct-btn" class="btn btn-accent">
+                        処理を実行
+                    </button>
+                </section>
+
+                <!-- Export Section -->
+                <section class="panel-section" style="padding-top: 10px;">
+                    <button id="export-btn" class="btn" style="background: var(--accent-green); color: white; border: none;">
+                        画像を保存 (PNG)
+                    </button>
+                </section>
+
+                <!-- AdSense Space -->
+                <div class="adsense-sidebar" style="flex: 1; margin-top: 16px; border-top: 1px solid var(--border-light); display: flex; align-items: center; justify-content: center; min-height: 250px;">
+                    <span style="font-size: 10px; color: var(--text-muted);">広告スペース</span>
+                </div>
+            </aside>
+
+            <!-- Workspace -->
+            <main class="workspace" id="canvas-workspace">
+                <div class="drop-zone-overlay">
+                    <p style="font-weight: 700; color: var(--accent-primary);">ファイルをドロップして読み込み</p>
+                </div>
+                
+                <div id="canvas-wrapper" class="canvas-viewport">
+                    <div class="canvas-container">
+                        <canvas id="main-canvas"></canvas>
+                    </div>
+                </div>
+
+                <!-- Floating Toolbar -->
+                <div class="floating-toolbar">
+                    <button id="undo-btn" class="tool-btn" title="元に戻す" disabled>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+                    </button>
+                    <div class="divider"></div>
+                    <button id="clear-btn" class="tool-btn btn-danger" title="クリア">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
+                    </button>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="login-overlay" class="login-overlay">
+        <div class="modal-content" style="text-align: center;">
+            <div style="margin-bottom: 24px;">
+                <div style="width: 48px; height: 48px; background: var(--accent-primary); border-radius: 8px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+                </div>
+                <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 4px;">PersImage</h2>
+                <p style="color: var(--text-secondary); font-size: 13px;">パース合成システム</p>
+            </div>
             
-            <div class="pricing-grid" style="grid-template-columns: repeat(2, 1fr); max-width: 700px; margin: 0 auto 48px;">
-                <!-- Free Plan -->
-                <div class="pricing-card">
-                    <div class="tier-name">Free</div>
-                    <div class="tier-price">$0<span>/月</span></div>
-                    <div class="tier-description">まずは試してみたい方へ</div>
-                    <ul class="tier-features">
-                        <li>月間 5 クレジット</li>
-                    </ul>
-                    <button id="plan-btn-free" class="btn-plan" disabled>現在のプラン</button>
-                </div>
-
-                <!-- Standard Plan -->
-                <div class="pricing-card featured">
-                    <div class="badge-featured">おすすめ</div>
-                    <div class="tier-name">Standard</div>
-                    <div class="tier-price">$18<span>/月</span></div>
-                    <div class="tier-description">日々の提案をより高品質に</div>
-                    <ul class="tier-features">
-                        <li>月間 150 クレジット</li>
-                        <!-- <li>作成履歴の保存 (30日間)</li> -->
-                    </ul>
-                    <button id="plan-btn-pro" class="btn-plan btn-plan-pro" data-plan="pro">Standardプランにアップグレード</button>
-                </div>
-            </div>
-
-            <!-- Add-on -->
-            <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 32px;">
-                <h3 style="text-align: center; margin-bottom: 24px; font-size: 1.1rem; color: #fff;">クレジットの追加チャージ (単発購入)</h3>
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
-                    <button class="btn btn-addon" data-addon="topup_10" style="padding: 16px; border-radius: 12px; display: flex; flex-direction: column; align-items: center;">
-                        <span style="font-size: 0.8rem; color: var(--text-secondary);">10 クレジット</span>
-                        <span style="font-size: 1.25rem; font-weight: 700; color: #fff;">$5</span>
-                    </button>
-                    <button class="btn btn-addon" data-addon="topup_50" style="padding: 16px; border-radius: 12px; display: flex; flex-direction: column; align-items: center;">
-                        <span style="font-size: 0.8rem; color: var(--text-secondary);">50 クレジット</span>
-                        <span style="font-size: 1.25rem; font-weight: 700; color: #fff;">$20</span>
-                    </button>
-                    <button class="btn btn-addon" data-addon="topup_200" style="padding: 16px; border-radius: 12px; display: flex; flex-direction: column; align-items: center;">
-                        <span style="font-size: 0.8rem; color: var(--text-secondary);">200 クレジット</span>
-                        <span style="font-size: 1.25rem; font-weight: 700; color: #fff;">$70</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ギャラリーモーダル (機能停止中)
-    <div id="gallery-overlay" class="pricing-overlay" style="display: none; z-index: 2200;">
-        <div class="login-modal" style="max-width: 1000px; width: 95%; height: 85vh; padding: 32px; display: flex; flex-direction: column;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-                <h2 style="margin: 0; font-size: 1.5rem;">作成履歴</h2>
-                <div id="close-gallery-btn" style="cursor: pointer; font-size: 28px; color: var(--text-secondary);">✕</div>
-            </div>
-            <div id="gallery-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; overflow-y: auto;"></div>
-        </div>
-    </div>
-    -->
-
-    <!-- ログイン -->
-    <div id="login-overlay" class="pricing-overlay">
-        <div class="login-modal" style="text-align: center; padding: 50px;">
-            <img src="/static/logo.png" alt="Logo" style="width: 240px; margin-bottom: 20px;">
-            <h1 style="font-size: 2rem; font-weight: 700; margin-bottom: 12px;">PersImage</h1>
-            <p style="color: var(--text-secondary); margin-bottom: 40px;">「だいたいこんな感じ」をその場ですぐに。</p>
-            <button id="google-login-btn" class="btn-social btn-google" style="margin: 0 auto;">
-                <svg width="20" height="20" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-                Googleで続ける
+            <button id="google-login-btn" class="btn" style="height: 44px; background: #fff; border: 1px solid var(--border-strong); opacity: 0.5; pointer-events: none;">
+                <svg width="16" height="16" viewBox="0 0 24 24" style="margin-right: 8px;"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                <span id="google-login-text">読み込み中...</span>
             </button>
         </div>
     </div>
 
-    <!-- メインアプリ -->
-    <div id="loading-overlay" class="loading-overlay hidden">
-        <div class="spinner"></div>
-        <p>処理中...</p>
-    </div>
-
-    <div class="app-container">
-        <aside class="sidebar">
-            <h1 class="logo" style="margin-bottom: 30px;">PersImage</h1>
+    <div id="pricing-modal" class="pricing-overlay hidden">
+        <div class="modal-content" style="max-width: 500px;">
+            <div id="close-pricing-btn" style="position: absolute; top: 16px; right: 16px; cursor: pointer; color: var(--text-muted); font-size: 18px;">✕</div>
+            <h2 style="font-size: 18px; font-weight: 700; margin-bottom: 24px; text-align: center;">プラン管理</h2>
             
-            <!-- アカウント関連を最上部に -->
-            <div class="control-group">
-                <h3>アカウント</h3>
-                <div id="user-info" class="hidden">
-                    <p id="user-email" style="font-size: 11px; color:#888; margin-bottom:4px;"></p>
-                    <p style="font-size: 13px; margin-bottom:4px;">プラン: <span id="user-plan" style="font-weight: 700; color: #fff;">--</span></p>
-                    <p style="font-size: 14px; font-weight: 600;">月間クレジット: <span id="credit-count" style="color:var(--accent-green);">--</span></p>
-                    <p style="font-size: 13px;">追加購入分: <span id="addon-credit-count" style="color:#f59e0b;">--</span></p>
-                    <button id="show-pricing-btn" class="btn btn-outline-green" style="margin-top:10px; width:100%;">プラン管理/チャージ</button>
-                    <button id="logout-btn" class="btn btn-secondary" style="margin-top:8px; width:100%; color:#ef4444;">ログアウト</button>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px;">
+                <div style="border: 1px solid var(--border-light); border-radius: 8px; padding: 16px; text-align: center;">
+                    <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">FREE</div>
+                    <div style="font-size: 20px; font-weight: 700; margin-bottom: 12px;">$0</div>
+                    <button class="btn" disabled style="font-size: 11px; padding: 6px;">現在のプラン</button>
+                </div>
+                <div style="border: 1px solid var(--accent-primary); background: #f0f7ff; border-radius: 8px; padding: 16px; text-align: center;">
+                    <div style="font-size: 11px; color: var(--accent-primary); margin-bottom: 4px;">STANDARD</div>
+                    <div style="font-size: 20px; font-weight: 700; margin-bottom: 12px;">$18</div>
+                    <button id="plan-btn-pro" data-plan="pro" class="btn btn-primary" style="font-size: 11px; padding: 6px;">変更する</button>
                 </div>
             </div>
 
-            <!-- ギャラリーボタン (機能停止中)
-            <div style="margin-bottom: 24px;">
-                <button class="btn btn-primary" id="open-gallery-btn" style="width: 100%; border-color: var(--accent-green); color: var(--accent-green); background: transparent;">
-                    <span class="icon">🖼</span> 作成履歴を表示
-                </button>
+            <h3 style="font-size: 12px; font-weight: 700; color: var(--text-secondary); margin-bottom: 12px;">追加クレジット</h3>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+                <button class="btn btn-addon" data-addon="topup_10" style="font-size: 10px; padding: 8px 4px;">10回 / $5</button>
+                <button class="btn btn-addon" data-addon="topup_50" style="font-size: 10px; padding: 8px 4px;">50回 / $20</button>
+                <button class="btn btn-addon" data-addon="topup_200" style="font-size: 10px; padding: 8px 4px;">200回 / $70</button>
             </div>
-            -->
-
-            <div class="control-group">
-                <h3>背景</h3>
-                <button class="btn" id="open-bg-btn">写真をアップロード</button>
-                <input type="file" id="bg-input" accept="image/*" class="hidden">
-            </div>
-
-            <div class="control-group">
-                <h3>建物を追加</h3>
-                <button class="btn" id="add-photo-btn">写真を追加</button>
-                <button class="btn btn-outline-green" id="add-sketch-btn">イラストを追加</button>
-                <button class="btn blend-btn" id="blend-btn" style="color: white; font-weight: bold; margin-top: 8px;">背景に馴染ませる</button>
-            </div>
-
-            <div class="control-group">
-                <h3>テキストで指示</h3>
-                <textarea class="textarea" placeholder="例：夕方にする、木を増やす"></textarea>
-                <button class="btn btn-primary" id="ai-instruct-btn" style="width:100%; margin-top:8px;">指示を実行</button>
-            </div>
-
-            <div class="sidebar-section" style="margin-top:auto;">
-                <button class="btn btn-outline" id="undo-btn" disabled>Undo</button>
-                <button class="btn btn-outline-green" id="export-btn">PNG保存</button>
-            </div>
-        </aside>
-
-        <main class="main-content">
-            <header class="top-bar">
-                <span class="status-msg">背景写真をアップロードしてください</span>
-            </header>
-            <div class="canvas-wrapper" id="canvas-wrapper">
-                <canvas id="main-canvas"></canvas>
-            </div>
-        </main>
+        </div>
     </div>
 
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="spinner"></div>
+        <p style="font-size: 13px; font-weight: 600; margin-top: 12px;">処理中...</p>
+    </div>
+
+    <div id="click-blocker" class="click-blocker"></div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
@@ -176,50 +184,14 @@
                 window.currentUserUID = user.uid;
                 overlay.style.display = 'none';
                 document.getElementById('user-info').classList.remove('hidden');
-                document.getElementById('user-email').textContent = user.email;
                 fetch('/api/user/sync', { method: 'POST', headers: { 'X-User-ID': user.uid } })
                     .then(res => res.json()).then(data => {
                         if(data.credits !== undefined) document.getElementById('credit-count').textContent = data.credits;
-                        if(data.addon_credits !== undefined) document.getElementById('addon-credit-count').textContent = data.addon_credits;
                         if(data.plan !== undefined) {
-                            const planLabel = data.plan.toUpperCase();
-                            document.getElementById('user-plan').textContent = planLabel; 
-                            
-                            // 料金プランモーダルの表示更新
-                            const btnFree = document.getElementById('plan-btn-free');
                             const btnPro = document.getElementById('plan-btn-pro');
-                            
-                            if (planLabel === 'STANDARD') {
-                                btnFree.disabled = false;
-                                btnFree.textContent = '無料プランに変更';
-                                btnFree.onclick = () => {
-                                    if(confirm('無料プランに変更しますか？（現在のクレジットは保持されますが、次回の自動更新は行われません）')) {
-                                        fetch('/api/user/downgrade', { 
-                                            method: 'POST', 
-                                            headers: { 'X-User-ID': user.uid } 
-                                        })
-                                        .then(res => res.json())
-                                        .then(data => {
-                                            if(data.status === 'success') {
-                                                alert('無料プランに変更しました。');
-                                                window.location.reload();
-                                            } else {
-                                                alert('変更に失敗しました。');
-                                            }
-                                        });
-                                    }
-                                };
-                                
-                                btnPro.textContent = '現在のプラン';
+                            if (data.plan.toUpperCase() === 'STANDARD') {
+                                btnPro.textContent = '契約中';
                                 btnPro.disabled = true;
-                                btnPro.classList.add('current'); // CSSでスタイル調整可能
-                            } else {
-                                btnFree.textContent = '現在のプラン';
-                                btnFree.disabled = true;
-                                
-                                btnPro.textContent = 'Standardプランにアップグレード';
-                                btnPro.disabled = false;
-                                btnPro.classList.remove('current');
                             }
                         }
                     });
@@ -231,10 +203,20 @@
                 window.currentUserUID = null;
                 overlay.style.display = 'flex';
                 document.getElementById('user-info').classList.add('hidden');
+                
+                const loginBtn = document.getElementById('google-login-btn');
+                const loginText = document.getElementById('google-login-text');
+                if (loginBtn && loginText) {
+                    loginBtn.style.opacity = '1';
+                    loginBtn.style.pointerEvents = 'auto';
+                    loginText.textContent = 'Googleアカウントでログイン';
+                }
             }
         });
-        document.getElementById('google-login-btn').onclick = () => signInWithPopup(auth, new GoogleAuthProvider());
+        document.getElementById('google-login-btn').onclick = () => {
+            signInWithPopup(auth, new GoogleAuthProvider()).catch(err => alert(err.message));
+        };
     </script>
-    <script type="module" src="/static/app.js?v=2"></script>
+    <script type="module" src="/static/app.js?v=5"></script>
 </body>
 </html>

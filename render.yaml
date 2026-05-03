@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: persimage
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_ID_LITE
+        sync: false
+      - key: STRIPE_PRICE_ID_PLUS
+        sync: false
+      - key: STRIPE_PRICE_ID_MAX
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: persimage-db
+          property: connectionString
+
+databases:
+  - name: persimage-db
+    databaseName: persimage
+    user: persimage

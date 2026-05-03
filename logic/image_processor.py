@@ -35,6 +35,7 @@ class ImageProcessor:
     def sketch_to_realistic(
         pil_image: Image.Image,
         api_token: str,
+        quality: str = "medium",
         prompt: str = (
             "Transform this sketch into a 3D architectural model. "
             "3D rendering, photorealistic 3D visualization, CG, volumetric lighting, "
@@ -58,7 +59,7 @@ class ImageProcessor:
             image=("image.png", buf, "image/png"),
             prompt=prompt,
             size="1024x1024",
-            quality="high",
+            quality=quality,
             n=1,
         )
 
@@ -184,6 +185,7 @@ class ImageProcessor:
         pil_image: Image.Image,
         instruction: str,
         api_token: str,
+        quality: str = "medium",
     ) -> Image.Image:
         """
         OpenAI gpt-image-1 でテキスト指示により画像を編集
@@ -206,6 +208,7 @@ class ImageProcessor:
             image=("image.png", buf, "image/png"),
             prompt=instruction,
             size="1024x1024",
+            quality=quality,
             n=1,
         )
 
@@ -225,6 +228,8 @@ class ImageProcessor:
         height: int,
         angle: float = 0.0,
         api_token: str = "",
+        is_sketch: bool = False,
+        quality: str = "medium",
     ) -> Image.Image:
         """
         建物画像を背景に合成し、OpenAI でリアルな画像に仕上げる。
@@ -274,54 +279,83 @@ class ImageProcessor:
                 ratio = np.clip(bg_mean / bld_mean, 0.3, 3.0)
                 bld_rgb = np.clip(bld_rgb.astype(float) * ratio, 0, 255).astype(np.uint8)
 
-        # ── ポアソンブレンディング（境界チェック） ──
-        margin = 5
-        safe = (
-            cx - bw // 2 >= margin and
-            cy - bh // 2 >= margin and
-            cx + bw // 2 <= bg_w - margin and
-            cy + bh // 2 <= bg_h - margin
-        )
-
-        if safe and mask.sum() > 100:
-            try:
-                rough_rgb = cv2.seamlessClone(
-                    bld_rgb, bg_rgb, mask,
-                    (cx, cy),
-                    cv2.NORMAL_CLONE,
-                )
-                rough = Image.fromarray(rough_rgb).convert("RGBA")
-            except Exception:
-                rough = None
-        else:
-            rough = None
-
-        if rough is None:
-            # フォールバック：通常アルファ合成
+        if is_sketch:
+            # スケッチは透明度がないためアルファ合成（半透明で重ねる）
             rough = background.convert("RGBA").copy()
             bld_paste = Image.fromarray(bld_arr).convert("RGBA")
             rough.paste(bld_paste, (cx - bw // 2, cy - bh // 2), bld_paste)
+        else:
+            # ── ポアソンブレンディング（境界チェック） ──
+            margin = 5
+            safe = (
+                cx - bw // 2 >= margin and
+                cy - bh // 2 >= margin and
+                cx + bw // 2 <= bg_w - margin and
+                cy + bh // 2 <= bg_h - margin
+            )
+
+            if safe and mask.sum() > 100:
+                try:
+                    rough_rgb = cv2.seamlessClone(
+                        bld_rgb, bg_rgb, mask,
+                        (cx, cy),
+                        cv2.NORMAL_CLONE,
+                    )
+                    rough = Image.fromarray(rough_rgb).convert("RGBA")
+                except Exception:
+                    rough = None
+            else:
+                rough = None
+
+            if rough is None:
+                # フォールバック：通常アルファ合成
+                rough = background.convert("RGBA").copy()
+                bld_paste = Image.fromarray(bld_arr).convert("RGBA")
+                rough.paste(bld_paste, (cx - bw // 2, cy - bh // 2), bld_paste)
 
         # ── OpenAI でリアルに仕上げ ──
         if api_token:
             from openai import OpenAI
             client = OpenAI(api_key=api_token)
 
+            # OpenAI API は最大 1024x1024 なので縮小して送る
+            rough_for_api = rough.convert("RGB")
+            max_size = 1024
+            if rough_for_api.width > max_size or rough_for_api.height > max_size:
+                rough_for_api = rough_for_api.copy()
+                rough_for_api.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+
             buf = io.BytesIO()
-            rough.convert("RGB").save(buf, format="PNG")
+            rough_for_api.save(buf, format="PNG")
             buf.seek(0)
+
+            if is_sketch:
+                polish_prompt = (
+                    "This image contains a hand-drawn sketch of a building overlaid on a real photograph. "
+                    "Convert the sketch into a photorealistic 3D-rendered building. "
+                    "The building should appear naturally integrated into the surrounding environment. "
+                    "Remove all sketch lines and make it look like a real photograph. "
+                    "Do not make it look like a painting or illustration."
+                )
+            else:
+                polish_prompt = "これは雑に合成した写真です。合成したとは思えないリアルな写真を生成してください。絵画的・イラスト的にならないようにしてください。本物の写真のようにしてください。"
 
             response = client.images.edit(
                 model="gpt-image-1",
                 image=("image.png", buf, "image/png"),
-                prompt="これは雑に合成した写真です。合成したとは思えないリアルな写真を生成してください。絵画的・イラスト的にならないようにしてください。本物の写真のようにしてください。",
+                prompt=polish_prompt,
                 size="1024x1024",
-                quality="high",
+                quality=quality,
                 n=1,
             )
 
             img_data = base64.b64decode(response.data[0].b64_json)
-            return Image.open(io.BytesIO(img_data)).convert("RGBA")
+            result = Image.open(io.BytesIO(img_data)).convert("RGBA")
+
+            # 元の背景サイズに戻す
+            if result.size != (bg_w, bg_h):
+                result = result.resize((bg_w, bg_h), Image.Resampling.LANCZOS)
+            return result
 
         return rough
 

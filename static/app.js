@@ -51,12 +51,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const instructBtn = document.getElementById('ai-instruct-btn');
         const instructInput = document.querySelector('.textarea');
         const exportBtn = document.getElementById('export-btn');
+        const blendBtn = document.getElementById('blend-btn');
+        const clearBtn = document.getElementById('clear-btn');
 
         if (addPhotoBtn) addPhotoBtn.disabled = !hasBg;
         if (addSketchBtn) addSketchBtn.disabled = !hasBg;
         if (instructBtn) instructBtn.disabled = !hasBg;
         if (instructInput) instructInput.disabled = !hasBg;
         if (exportBtn) exportBtn.disabled = !hasBg;
+        if (clearBtn) clearBtn.disabled = !hasBg;
+        // 合成ボタン: 選択オブジェクトがないと無効（選択イベントで管理）
+        if (blendBtn) blendBtn.disabled = true;
     }
     updateFeatureButtonsState();
 
@@ -204,9 +209,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const dataUrl = fCanvas.toDataURL({ format: 'png', multiplier: multiplier });
                 const blob = await dataUrlToBlob(dataUrl);
 
+                const quality = document.getElementById('quality-select')?.value || 'high';
                 const formData = new FormData();
                 formData.append('file', blob, 'canvas.png');
                 formData.append('instruction', text);
+                formData.append('quality', quality);
 
                 const uid = window.currentUserUID;
                 const res = await fetch('/api/instruction', {
@@ -252,10 +259,126 @@ document.addEventListener('DOMContentLoaded', () => {
                 isUndoing = false;
                 undoBtn.disabled = (canvasHistory.length <= 1);
                 updateFeatureButtonsState();
+                // ファイル入力をリセット（同じファイルを再選択できるようにする）
+                if (bgInput) bgInput.value = '';
+                photoInput.value = '';
+                sketchInput.value = '';
             });
         });
     }
     fCanvas.on('object:modified', saveHistory);
+
+    // --- 選択状態に応じて「馴染ませる」ボタンを制御 ---
+    function updateBlendBtnState() {
+        const blendBtn = document.getElementById('blend-btn');
+        if (!blendBtn) return;
+        const hasObj = !!fCanvas.getActiveObject();
+        const hasBg = !!fCanvas.backgroundImage;
+        blendBtn.disabled = !(hasObj && hasBg);
+    }
+    fCanvas.on('selection:created', updateBlendBtnState);
+    fCanvas.on('selection:updated', updateBlendBtnState);
+    fCanvas.on('selection:cleared', updateBlendBtnState);
+
+    // --- 画像を馴染ませる ---
+    const blendBtn = document.getElementById('blend-btn');
+    if (blendBtn) {
+        blendBtn.addEventListener('click', async () => {
+            const obj = fCanvas.getActiveObject();
+            if (!obj || !fCanvas.backgroundImage) return;
+
+            setControlsDisabled(true);
+            if (loadingOverlay) {
+                loadingOverlay.querySelector('p').textContent = '画像を馴染ませています...';
+                loadingOverlay.classList.remove('hidden');
+            }
+
+            try {
+                // 背景画像をblobとして取得
+                const bgEl = fCanvas.backgroundImage.getElement();
+                const bgTmp = document.createElement('canvas');
+                bgTmp.width = bgEl.naturalWidth || bgEl.width;
+                bgTmp.height = bgEl.naturalHeight || bgEl.height;
+                bgTmp.getContext('2d').drawImage(bgEl, 0, 0);
+                const bgBlob = await new Promise(resolve => bgTmp.toBlob(resolve, 'image/png'));
+
+                // 建物画像をblobとして取得（オリジナルサイズ）
+                const bldEl = obj.getElement();
+                const bldTmp = document.createElement('canvas');
+                bldTmp.width = bldEl.naturalWidth || bldEl.width;
+                bldTmp.height = bldEl.naturalHeight || bldEl.height;
+                bldTmp.getContext('2d').drawImage(bldEl, 0, 0);
+                const bldBlob = await new Promise(resolve => bldTmp.toBlob(resolve, 'image/png'));
+
+                // 配置情報（ロジカル座標 = 背景画像座標）
+                const cx = obj.left;
+                const cy = obj.top;
+                const w = obj.getScaledWidth();
+                const h = obj.getScaledHeight();
+                const angle = obj.angle || 0;
+                const isSketch = !!obj.isSketchLayer;
+
+                const quality = document.getElementById('quality-select')?.value || 'high';
+                const formData = new FormData();
+                formData.append('bg_file', bgBlob, 'background.png');
+                formData.append('bld_file', bldBlob, 'building.png');
+                formData.append('cx', cx);
+                formData.append('cy', cy);
+                formData.append('width', w);
+                formData.append('height', h);
+                formData.append('angle', angle);
+                formData.append('is_sketch', isSketch);
+                formData.append('quality', quality);
+
+                const uid = window.currentUserUID;
+                const res = await fetch('/api/blend', {
+                    method: 'POST',
+                    body: formData,
+                    headers: uid ? { 'X-User-ID': uid } : {}
+                });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+
+                // 建物オブジェクトを削除して結果を背景に反映
+                fCanvas.remove(obj);
+                setBackgroundFromURL(data.image_base64, false);
+                // クレジット残高を再取得して表示更新
+                if (uid) {
+                    fetch('/api/user/sync', { method: 'POST', headers: { 'X-User-ID': uid } })
+                        .then(r => r.json()).then(d => {
+                            const total = (d.credits ?? 0) + (d.addon_credits ?? 0);
+                            document.getElementById('credit-count').textContent = total;
+                        });
+                }
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                setControlsDisabled(false);
+                if (loadingOverlay) loadingOverlay.classList.add('hidden');
+            }
+        });
+    }
+
+    // --- クリア ---
+    function clearCanvas() {
+        fCanvas.clear();
+        fCanvas.setBackgroundImage(null, fCanvas.renderAll.bind(fCanvas));
+        originalBgBlob = null;
+        canvasHistory = [];
+        if (bgInput) bgInput.value = '';
+        updateFeatureButtonsState();
+        const undoBtn = document.getElementById('undo-btn');
+        if (undoBtn) undoBtn.disabled = true;
+    }
+    window.clearCanvas = clearCanvas;
+
+    const clearBtn = document.getElementById('clear-btn');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            if (!fCanvas.backgroundImage) return;
+            clearCanvas();
+        });
+    }
 
     // --- PNG保存 ---
     const exportBtn = document.getElementById('export-btn');
@@ -271,45 +394,33 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- ギャラリー ---
-    const openGalleryBtn = document.getElementById('open-gallery-btn');
-    const closeGalleryBtn = document.getElementById('close-gallery-btn');
-    const galleryOverlay = document.getElementById('gallery-overlay');
-    const galleryGrid = document.getElementById('gallery-grid');
-
-    if (openGalleryBtn && galleryOverlay) {
-        openGalleryBtn.addEventListener('click', async () => {
-            galleryOverlay.classList.remove('hidden');
-            galleryOverlay.style.display = 'flex';
-            if (galleryGrid) galleryGrid.innerHTML = '読み込み中...';
-            try {
-                const uid = window.currentUserUID;
-                const res = await fetch('/api/gallery', { headers: uid ? { 'X-User-ID': uid } : {} });
-                const data = await res.json();
-                if (galleryGrid) {
-                    galleryGrid.innerHTML = '';
-                    data.images?.forEach(imgData => {
-                        const img = document.createElement('img');
-                        img.src = imgData.url;
-                        img.style.width = '100px'; // 簡易表示
-                        galleryGrid.appendChild(img);
-                    });
-                }
-            } catch (e) { console.error(e); }
-        });
-    }
-    if (closeGalleryBtn && galleryOverlay) {
-        closeGalleryBtn.addEventListener('click', () => {
-            galleryOverlay.style.display = 'none';
-        });
-    }
-
-    // --- 決済ロジック ---
+// --- 決済ロジック ---
     async function handleCheckout(params) {
         const uid = window.currentUserUID;
         if (!uid) { alert('ログインが必要です。'); return; }
         try {
             if (loadingOverlay) loadingOverlay.classList.remove('hidden');
+
+            // 既存の有料サブスクがある場合 → 日割り精算でプラン変更
+            const currentPlan = window.currentUserPlan || 'free';
+            if (params.plan && currentPlan !== 'free') {
+                const res = await fetch('/api/change-plan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-User-ID': uid },
+                    body: JSON.stringify({ plan: params.plan })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    const label = params.plan.charAt(0).toUpperCase() + params.plan.slice(1);
+                    alert(`${label}プランに変更しました。`);
+                    location.reload();
+                } else {
+                    alert(data.error || 'エラーが発生しました');
+                }
+                return;
+            }
+
+            // 新規サブスク（FreeからのアップグレードはStripe Checkout）
             const res = await fetch('/api/create-checkout-session', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-User-ID': uid },

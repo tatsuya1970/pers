@@ -534,20 +534,23 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 
         print(f"Webhook (invoice.payment_succeeded) - sub_id: {sub_id}")
 
-        # サブスクリプション詳細を取得してメタデータから情報を復元
+        plan_credits = {"lite": 30, "plus": 70, "max": 200}
+
+        # サブスクリプション詳細を取得してユーザーを特定
         try:
             subscription = stripe.Subscription.retrieve(sub_id)
             sub_metadata = getattr(subscription, 'metadata', None) or {}
             firebase_uid = getattr(sub_metadata, 'firebase_uid', None)
-            credits_to_add = int(getattr(sub_metadata, 'credits_to_add', None) or 30)
 
             if firebase_uid:
                 user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
                 if user:
-                    # 毎月リセット: サブスク分は繰り越しせず上書き
-                    user.credits = credits_to_add
-                    db.commit()
-                    print(f"SUCCESS: Reset credits to {credits_to_add} for user {firebase_uid} (monthly renewal)")
+                    # DBのplanからクレジット数を決定（メタデータに依存しない）
+                    credits_to_add = plan_credits.get(user.plan, 0)
+                    if credits_to_add > 0:
+                        user.credits = credits_to_add
+                        db.commit()
+                        print(f"SUCCESS: Reset credits to {credits_to_add} for user {firebase_uid} (plan={user.plan}, monthly renewal)")
                 else:
                     print(f"ERROR: User {firebase_uid} not found for subscription {sub_id}")
             else:

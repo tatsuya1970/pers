@@ -401,7 +401,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (loadingOverlay) loadingOverlay.classList.remove('hidden');
 
             // 既存の有料サブスクがある場合 → 日割り精算でプラン変更
-            const currentPlan = window.currentUserPlan || 'free';
+            const currentPlan = (window.currentUserPlan || 'free').toLowerCase();
             if (params.plan && currentPlan !== 'free') {
                 const res = await fetch('/api/change-plan', {
                     method: 'POST',

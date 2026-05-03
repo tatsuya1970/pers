@@ -636,21 +636,6 @@ async def add_credits(user: User = Depends(get_current_user), db: Session = Depe
     db.refresh(user)
     return {"status": "success", "credits": user.credits}
 
-@app.post("/api/admin/reset-my-account")
-async def reset_my_account(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """一時的なリセットエンドポイント（使用後削除）"""
-    if not user:
-        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
-    # 全ユーザーのaddon_creditsをリセット
-    all_users = db.query(User).all()
-    for u in all_users:
-        u.addon_credits = 0
-        u.credits = 10
-        u.plan = "free"
-        u.stripe_subscription_id = None
-        u.last_session_id = None
-    db.commit()
-    return {"status": "all_reset", "users_reset": len(all_users)}
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

@@ -82,14 +82,6 @@
     <div class="app-container">
         <aside class="sidebar">
 
-            <div class="section" id="temp-reset-section">
-                <button onclick="
-                    fetch('/api/admin/reset-my-account',{method:'POST',headers:{'X-User-ID':window.currentUserUID}})
-                    .then(r=>r.json()).then(d=>{alert('リセット完了：残り'+d.credits+'回');location.reload();})
-                " style="background:#ef4444;color:#fff;border:none;padding:10px;border-radius:8px;width:100%;cursor:pointer;font-weight:700;">
-                    ⚠️ DBリセット（一時ボタン）
-                </button>
-            </div>
 
             <div class="section">
                 <div class="section-label">背景設定</div>

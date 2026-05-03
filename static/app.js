@@ -1,7 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- UI要素 ---
     const wrapper = document.getElementById('canvas-wrapper');
-    const workspace = document.getElementById('canvas-workspace');
     const loadingOverlay = document.getElementById('loading-overlay');
     const clickBlocker = document.getElementById('click-blocker');
 
@@ -60,8 +59,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (instructBtn) instructBtn.disabled = !hasBg;
         if (instructInput) instructInput.disabled = !hasBg;
         if (exportBtn) exportBtn.disabled = !hasBg;
-        if (blendBtn) blendBtn.disabled = !hasBg;
-        if (clearBtn) clearBtn.disabled = !hasBg && fCanvas.getObjects().length === 0;
+        if (clearBtn) clearBtn.disabled = !hasBg;
+        // 合成ボタン: 選択オブジェクトがないと無効（選択イベントで管理）
+        if (blendBtn) blendBtn.disabled = true;
     }
     updateFeatureButtonsState();
 
@@ -69,27 +69,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 背景セットヘルパー
     function setBackgroundFromURL(url, updateCanvasSize = false) {
-        // ステータスメッセージを即座に消す
-        const statusMsg = document.getElementById('status-msg');
-        if (statusMsg) statusMsg.textContent = '';
-
         fabric.Image.fromURL(url, (img) => {
             if (updateCanvasSize && wrapper) {
                 const scale = Math.min(
                     (wrapper.clientWidth * 0.9) / img.width,
                     (wrapper.clientHeight * 0.9) / img.height
                 );
-                // 常にスケールを適用（小さい画像は拡大、大きい画像は縮小して枠に収める）
-                fCanvas.setZoom(scale);
-                fCanvas.setWidth(img.width * scale);
-                fCanvas.setHeight(img.height * scale);
+                if (scale < 1) {
+                    fCanvas.setZoom(scale);
+                    fCanvas.setWidth(img.width * scale);
+                    fCanvas.setHeight(img.height * scale);
+                } else {
+                    fCanvas.setZoom(1);
+                    fCanvas.setWidth(img.width);
+                    fCanvas.setHeight(img.height);
+                }
             }
             fCanvas.setBackgroundImage(img, fCanvas.renderAll.bind(fCanvas), {
                 originX: 'left',
                 originY: 'top',
                 crossOrigin: 'anonymous'
             });
-
             saveHistory();
             updateFeatureButtonsState();
         });
@@ -107,7 +107,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 reader.onload = (ev) => setBackgroundFromURL(ev.target.result, true);
                 reader.readAsDataURL(originalBgBlob);
             }
-            e.target.value = '';
         });
     }
 
@@ -146,10 +145,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             };
             reader.readAsDataURL(file);
-        } else if (!fCanvas.backgroundImage && e.target.files.length > 0) {
+        } else if (!fCanvas.backgroundImage) {
             alert('先に背景をアップロードしてください。');
         }
-        e.target.value = '';
     });
 
     // --- イラスト変換 ---
@@ -189,96 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             reader.readAsDataURL(e.target.files[0]);
         }
-        e.target.value = '';
     });
-
-    // --- 背景に馴染ませる ---
-    const blendBtn = document.getElementById('blend-btn');
-    if (blendBtn) {
-        blendBtn.addEventListener('click', async () => {
-            const obj = fCanvas.getActiveObject();
-            if (!obj) { 
-                addLog('合成する建物（レイヤー）を選択状態でクリックしてください。', 'warn'); 
-                alert('合成する建物（レイヤー）を選択状態でクリックしてください。');
-                return; 
-            }
-            if (!fCanvas.backgroundImage) { addLog('背景が設定されていません。', 'warn'); return; }
-
-            setControlsDisabled(true);
-            if (loadingOverlay) {
-                loadingOverlay.querySelector('p').textContent = '背景に合成中...';
-                loadingOverlay.classList.remove('hidden');
-            }
-            addLog('合成処理を実行中...', 'info');
-
-            try {
-                const objData = obj.toDataURL({ format: 'png', multiplier: 1 });
-                const objBlob = await dataUrlToBlob(objData);
-
-                const cx = obj.left;
-                const cy = obj.top;
-                const scaledWidth = obj.getScaledWidth();
-                const scaledHeight = obj.getScaledHeight();
-                const angle = obj.angle;
-
-                const formData = new FormData();
-
-                obj.set('visible', false);
-                fCanvas.discardActiveObject();
-                fCanvas.renderAll();
-
-                const multiplier = 1 / fCanvas.getZoom();
-                const currentBgBlob = await dataUrlToBlob(fCanvas.toDataURL({ format: 'png', multiplier: multiplier }));
-
-                obj.set('visible', true);
-                fCanvas.setActiveObject(obj);
-                fCanvas.renderAll();
-
-                formData.append('bg_file', currentBgBlob, 'bg.png');
-                formData.append('bld_file', objBlob, 'bld.png');
-                formData.append('cx', cx);
-                formData.append('cy', cy);
-                formData.append('width', scaledWidth);
-                formData.append('height', scaledHeight);
-                formData.append('angle', angle);
-                formData.append('is_sketch', obj.isSketchLayer ? 'true' : 'false');
-
-                const uid = window.currentUserUID;
-                const res = await fetch('/api/blend', {
-                    method: 'POST',
-                    body: formData,
-                    headers: uid ? { 'X-User-ID': uid } : {}
-                });
-                const data = await res.json();
-                if (data.error) throw new Error(data.error);
-
-                if (data.credits_remaining !== undefined) {
-                    const cd = document.getElementById('credit-count');
-                    if (cd) cd.textContent = data.credits_remaining;
-                }
-
-                setBackgroundFromURL(data.image_base64, false);
-                fCanvas.remove(obj);
-                addLog('馴染ませ完了！建物が背景と一体化しました。', 'info');
-            } catch (err) {
-                addLog('エラー: ' + err.message, 'error');
-                if (err.message.includes('チケット') || err.message.includes('クレジット')) {
-                    if (confirm('クレジット残高が不足しています。購入画面を開きますか？')) {
-                        const pricingModal = document.getElementById('pricing-modal');
-                        if (pricingModal) pricingModal.classList.remove('hidden');
-                    }
-                } else {
-                    alert('エラー: ' + err.message);
-                }
-            } finally {
-                setControlsDisabled(false);
-                if (loadingOverlay) {
-                    loadingOverlay.classList.add('hidden');
-                    loadingOverlay.querySelector('p').textContent = '処理中...';
-                }
-            }
-        });
-    }
 
     // --- AI編集指示 ---
     const instructBtn = document.getElementById('ai-instruct-btn');
@@ -291,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             setControlsDisabled(true);
             if (loadingOverlay) {
-                loadingOverlay.querySelector('p').textContent = '処理を実行中...';
+                loadingOverlay.querySelector('p').textContent = 'AIによる指示を実行中...';
                 loadingOverlay.classList.remove('hidden');
             }
 
@@ -300,9 +209,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const dataUrl = fCanvas.toDataURL({ format: 'png', multiplier: multiplier });
                 const blob = await dataUrlToBlob(dataUrl);
 
+                const quality = document.getElementById('quality-select')?.value || 'high';
                 const formData = new FormData();
                 formData.append('file', blob, 'canvas.png');
                 formData.append('instruction', text);
+                formData.append('quality', quality);
 
                 const uid = window.currentUserUID;
                 const res = await fetch('/api/instruction', {
@@ -335,7 +246,6 @@ document.addEventListener('DOMContentLoaded', () => {
         canvasHistory.push(JSON.stringify(fCanvas.toJSON(['isSketchLayer'])));
         if (canvasHistory.length > 20) canvasHistory.shift();
         if (undoBtn) undoBtn.disabled = (canvasHistory.length <= 1);
-        updateFeatureButtonsState();
     }
 
     if (undoBtn) {
@@ -349,43 +259,126 @@ document.addEventListener('DOMContentLoaded', () => {
                 isUndoing = false;
                 undoBtn.disabled = (canvasHistory.length <= 1);
                 updateFeatureButtonsState();
+                // ファイル入力をリセット（同じファイルを再選択できるようにする）
+                if (bgInput) bgInput.value = '';
+                photoInput.value = '';
+                sketchInput.value = '';
             });
+        });
+    }
+    fCanvas.on('object:modified', saveHistory);
+
+    // --- 選択状態に応じて「馴染ませる」ボタンを制御 ---
+    function updateBlendBtnState() {
+        const blendBtn = document.getElementById('blend-btn');
+        if (!blendBtn) return;
+        const hasObj = !!fCanvas.getActiveObject();
+        const hasBg = !!fCanvas.backgroundImage;
+        blendBtn.disabled = !(hasObj && hasBg);
+    }
+    fCanvas.on('selection:created', updateBlendBtnState);
+    fCanvas.on('selection:updated', updateBlendBtnState);
+    fCanvas.on('selection:cleared', updateBlendBtnState);
+
+    // --- 画像を馴染ませる ---
+    const blendBtn = document.getElementById('blend-btn');
+    if (blendBtn) {
+        blendBtn.addEventListener('click', async () => {
+            const obj = fCanvas.getActiveObject();
+            if (!obj || !fCanvas.backgroundImage) return;
+
+            setControlsDisabled(true);
+            if (loadingOverlay) {
+                loadingOverlay.querySelector('p').textContent = '画像を馴染ませています...';
+                loadingOverlay.classList.remove('hidden');
+            }
+
+            try {
+                // 背景画像をblobとして取得
+                const bgEl = fCanvas.backgroundImage.getElement();
+                const bgTmp = document.createElement('canvas');
+                bgTmp.width = bgEl.naturalWidth || bgEl.width;
+                bgTmp.height = bgEl.naturalHeight || bgEl.height;
+                bgTmp.getContext('2d').drawImage(bgEl, 0, 0);
+                const bgBlob = await new Promise(resolve => bgTmp.toBlob(resolve, 'image/png'));
+
+                // 建物画像をblobとして取得（オリジナルサイズ）
+                const bldEl = obj.getElement();
+                const bldTmp = document.createElement('canvas');
+                bldTmp.width = bldEl.naturalWidth || bldEl.width;
+                bldTmp.height = bldEl.naturalHeight || bldEl.height;
+                bldTmp.getContext('2d').drawImage(bldEl, 0, 0);
+                const bldBlob = await new Promise(resolve => bldTmp.toBlob(resolve, 'image/png'));
+
+                // 配置情報（ロジカル座標 = 背景画像座標）
+                const cx = obj.left;
+                const cy = obj.top;
+                const w = obj.getScaledWidth();
+                const h = obj.getScaledHeight();
+                const angle = obj.angle || 0;
+                const isSketch = !!obj.isSketchLayer;
+
+                const quality = document.getElementById('quality-select')?.value || 'high';
+                const formData = new FormData();
+                formData.append('bg_file', bgBlob, 'background.png');
+                formData.append('bld_file', bldBlob, 'building.png');
+                formData.append('cx', cx);
+                formData.append('cy', cy);
+                formData.append('width', w);
+                formData.append('height', h);
+                formData.append('angle', angle);
+                formData.append('is_sketch', isSketch);
+                formData.append('quality', quality);
+
+                const uid = window.currentUserUID;
+                const res = await fetch('/api/blend', {
+                    method: 'POST',
+                    body: formData,
+                    headers: uid ? { 'X-User-ID': uid } : {}
+                });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+
+                // 建物オブジェクトを削除して結果を背景に反映
+                fCanvas.remove(obj);
+                setBackgroundFromURL(data.image_base64, false);
+                // クレジット残高を再取得して表示更新
+                if (uid) {
+                    fetch('/api/user/sync', { method: 'POST', headers: { 'X-User-ID': uid } })
+                        .then(r => r.json()).then(d => {
+                            const total = (d.credits ?? 0) + (d.addon_credits ?? 0);
+                            document.getElementById('credit-count').textContent = total;
+                        });
+                }
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                setControlsDisabled(false);
+                if (loadingOverlay) loadingOverlay.classList.add('hidden');
+            }
         });
     }
 
     // --- クリア ---
+    function clearCanvas() {
+        fCanvas.clear();
+        fCanvas.setBackgroundImage(null, fCanvas.renderAll.bind(fCanvas));
+        originalBgBlob = null;
+        canvasHistory = [];
+        if (bgInput) bgInput.value = '';
+        updateFeatureButtonsState();
+        const undoBtn = document.getElementById('undo-btn');
+        if (undoBtn) undoBtn.disabled = true;
+    }
+    window.clearCanvas = clearCanvas;
+
     const clearBtn = document.getElementById('clear-btn');
     if (clearBtn) {
         clearBtn.addEventListener('click', () => {
-            if (!confirm('全ての写真と背景をクリアしてよろしいですか？')) return;
-            
-            fCanvas.clear();
-            fCanvas.backgroundImage = null;
-            
-            // ズームと位置をリセット
-            fCanvas.setZoom(1);
-            fCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
-            
-            // キャンバスサイズを初期サイズに戻す
-            if (wrapper) {
-                fCanvas.setWidth(wrapper.clientWidth * 0.9);
-                fCanvas.setHeight(wrapper.clientHeight * 0.9);
-            }
-            
-            fCanvas.renderAll();
-            
-            originalBgBlob = null;
-            canvasHistory = [];
-            
-            const statusMsg = document.getElementById('status-msg');
-            if (statusMsg) statusMsg.textContent = '背景写真をアップロードしてください';
-            
-            saveHistory();
-            updateFeatureButtonsState();
+            if (!fCanvas.backgroundImage) return;
+            clearCanvas();
         });
     }
-
-    fCanvas.on('object:modified', saveHistory);
 
     // --- PNG保存 ---
     const exportBtn = document.getElementById('export-btn');
@@ -396,54 +389,38 @@ document.addEventListener('DOMContentLoaded', () => {
             fCanvas.renderAll();
             const link = document.createElement('a');
             link.download = 'pers_export.png';
-            // 元の解像度を維持、ただしズームアップしている場合は現在の表示サイズで出力
-            const multiplier = Math.max(1, 1 / fCanvas.getZoom());
-            link.href = fCanvas.toDataURL({ format: 'png', multiplier: multiplier });
+            link.href = fCanvas.toDataURL({ format: 'png', multiplier: 1 / fCanvas.getZoom() });
             link.click();
         });
     }
 
-    // --- ギャラリー (機能停止中) ---
-    /*
-    const openGalleryBtn = document.getElementById('open-gallery-btn');
-    const closeGalleryBtn = document.getElementById('close-gallery-btn');
-    const galleryOverlay = document.getElementById('gallery-overlay');
-    const galleryGrid = document.getElementById('gallery-grid');
-
-    if (openGalleryBtn && galleryOverlay) {
-        openGalleryBtn.addEventListener('click', async () => {
-            galleryOverlay.classList.remove('hidden');
-            galleryOverlay.style.display = 'flex';
-            if (galleryGrid) galleryGrid.innerHTML = '読み込み中...';
-            try {
-                const uid = window.currentUserUID;
-                const res = await fetch('/api/gallery', { headers: uid ? { 'X-User-ID': uid } : {} });
-                const data = await res.json();
-                if (galleryGrid) {
-                    galleryGrid.innerHTML = '';
-                    data.images?.forEach(imgData => {
-                        const img = document.createElement('img');
-                        img.src = imgData.url;
-                        img.style.width = '100px'; // 簡易表示
-                        galleryGrid.appendChild(img);
-                    });
-                }
-            } catch (e) { console.error(e); }
-        });
-    }
-    if (closeGalleryBtn && galleryOverlay) {
-        closeGalleryBtn.addEventListener('click', () => {
-            galleryOverlay.style.display = 'none';
-        });
-    }
-    */
-
-    // --- 決済ロジック ---
+// --- 決済ロジック ---
     async function handleCheckout(params) {
         const uid = window.currentUserUID;
         if (!uid) { alert('ログインが必要です。'); return; }
         try {
             if (loadingOverlay) loadingOverlay.classList.remove('hidden');
+
+            // 既存の有料サブスクがある場合 → 日割り精算でプラン変更
+            const currentPlan = window.currentUserPlan || 'free';
+            if (params.plan && currentPlan !== 'free') {
+                const res = await fetch('/api/change-plan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-User-ID': uid },
+                    body: JSON.stringify({ plan: params.plan })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    const label = params.plan.charAt(0).toUpperCase() + params.plan.slice(1);
+                    alert(`${label}プランに変更しました。`);
+                    location.reload();
+                } else {
+                    alert(data.error || 'エラーが発生しました');
+                }
+                return;
+            }
+
+            // 新規サブスク（FreeからのアップグレードはStripe Checkout）
             const res = await fetch('/api/create-checkout-session', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-User-ID': uid },
@@ -462,52 +439,4 @@ document.addEventListener('DOMContentLoaded', () => {
         const aBtn = e.target.closest('.btn-addon[data-addon]');
         if (aBtn) return handleCheckout({ addon: aBtn.getAttribute('data-addon') });
     });
-
-    // --- ドラッグ＆ドロップ ---
-    if (workspace) {
-        workspace.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            workspace.classList.add('drag-over');
-        });
-        workspace.addEventListener('dragleave', () => {
-            workspace.classList.remove('drag-over');
-        });
-        workspace.addEventListener('drop', (e) => {
-            e.preventDefault();
-            workspace.classList.remove('drag-over');
-            if (e.dataTransfer.files.length > 0) {
-                const file = e.dataTransfer.files[0];
-                if (file.type.startsWith('image/')) {
-                    if (!fCanvas.backgroundImage) {
-                        originalBgBlob = file;
-                        const reader = new FileReader();
-                        reader.onload = (ev) => setBackgroundFromURL(ev.target.result, true);
-                        reader.readAsDataURL(file);
-                    } else {
-                        const reader = new FileReader();
-                        reader.onload = (ev) => {
-                            fabric.Image.fromURL(ev.target.result, (img) => {
-                                const lw = fCanvas.getWidth() / fCanvas.getZoom();
-                                const lh = fCanvas.getHeight() / fCanvas.getZoom();
-                                img.set({
-                                    left: lw / 2, top: lh / 2,
-                                    originX: 'center', originY: 'center',
-                                    cornerColor: '#3b82f6', transparentCorners: false
-                                });
-                                if (img.width > lw * 0.5) img.scaleToWidth(lw * 0.5);
-                                fCanvas.add(img);
-                                fCanvas.setActiveObject(img);
-                                saveHistory();
-                            });
-                        };
-                        reader.readAsDataURL(file);
-                    }
-                }
-            }
-        });
-    }
-
-    // 初期ステータス
-    const statusMsg = document.getElementById('status-msg');
-    if (statusMsg) statusMsg.textContent = '背景写真をアップロードしてください';
 });

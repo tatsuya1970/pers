@@ -3,164 +3,148 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PersImage - パース合成システム</title>
-    <link rel="stylesheet" href="/static/style.css?v=3.0">
+    <title>PersImage</title>
+    <link rel="stylesheet" href="/static/style.css?v=2.0">
     <link rel="icon" type="image/png" href="/static/logo.png">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <!-- App Shell -->
-    <div class="app-shell">
-        <!-- Top Header -->
-        <header class="top-header">
-            <div class="brand">
-                <div class="brand-logo">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
-                </div>
-                <h1 class="brand-name">PersImage</h1>
-                <div id="status-msg" class="status-msg" style="margin-left: 16px; font-size: 12px; font-weight: 500;"></div>
-            </div>
 
-            <div class="user-actions">
-                <div id="user-info" class="hidden" style="display: flex; align-items: center; gap: 12px;">
-                    <div class="credits-badge">
-                        <span id="credit-count">--</span> クレジット
-                    </div>
-                    <button id="show-pricing-btn" class="btn-ghost" style="font-size: 11px; font-weight: 700; text-decoration: underline;">プラン管理</button>
-                    <div class="divider"></div>
-                    <button id="logout-btn" class="btn-ghost btn-danger" style="font-size: 11px;">ログアウト</button>
-                </div>
-            </div>
-        </header>
-
-        <!-- Main Body -->
-        <div class="main-body">
-            <!-- Side Panel (Controls) -->
-            <aside class="side-panel">
-                <!-- Background Section -->
-                <section class="panel-section">
-                    <h3 class="section-title">背景設定</h3>
-                    <button id="open-bg-btn" class="btn">
-                        背景写真を読み込む
-                    </button>
-                    <input type="file" id="bg-input" accept="image/*" class="hidden">
-                </section>
-
-                <!-- Objects Section -->
-                <section class="panel-section">
-                    <h3 class="section-title">要素の追加</h3>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                        <button id="add-photo-btn" class="btn" style="flex-direction: column; padding: 12px 0;">
-                            写真
-                        </button>
-                        <button id="add-sketch-btn" class="btn" style="flex-direction: column; padding: 12px 0;">
-                            イラスト
-                        </button>
-                    </div>
-                    <button id="blend-btn" class="btn btn-primary" style="margin-top: 4px;">
-                        背景に合成
-                    </button>
-                </section>
-
-                <!-- Edit Section -->
-                <section class="panel-section">
-                    <h3 class="section-title">画像加工 / 指示</h3>
-                    <textarea class="textarea" placeholder="例：空を夕方にする、木を増やす..."></textarea>
-                    <button id="ai-instruct-btn" class="btn btn-accent">
-                        処理を実行
-                    </button>
-                </section>
-
-                <!-- Export Section -->
-                <section class="panel-section" style="padding-top: 10px;">
-                    <button id="export-btn" class="btn" style="background: var(--accent-green); color: white; border: none;">
-                        画像を保存 (PNG)
-                    </button>
-                </section>
-
-                <!-- AdSense Space -->
-                <div class="adsense-sidebar" style="flex: 1; margin-top: 16px; border-top: 1px solid var(--border-light); display: flex; align-items: center; justify-content: center; min-height: 250px;">
-                    <span style="font-size: 10px; color: var(--text-muted);">広告スペース</span>
-                </div>
-            </aside>
-
-            <!-- Workspace -->
-            <main class="workspace" id="canvas-workspace">
-                <div class="drop-zone-overlay">
-                    <p style="font-weight: 700; color: var(--accent-primary);">ファイルをドロップして読み込み</p>
-                </div>
-                
-                <div id="canvas-wrapper" class="canvas-viewport">
-                    <div class="canvas-container">
-                        <canvas id="main-canvas"></canvas>
-                    </div>
-                </div>
-
-                <!-- Floating Toolbar -->
-                <div class="floating-toolbar">
-                    <button id="undo-btn" class="tool-btn" title="元に戻す" disabled>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
-                    </button>
-                    <div class="divider"></div>
-                    <button id="clear-btn" class="tool-btn btn-danger" title="クリア">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
-                    </button>
-                </div>
-            </main>
-        </div>
-    </div>
-
-    <!-- Modals -->
-    <div id="login-overlay" class="login-overlay">
-        <div class="modal-content" style="text-align: center;">
-            <div style="margin-bottom: 24px;">
-                <div style="width: 48px; height: 48px; background: var(--accent-primary); border-radius: 8px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
-                </div>
-                <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 4px;">PersImage</h2>
-                <p style="color: var(--text-secondary); font-size: 13px;">パース合成システム</p>
-            </div>
-            
-            <button id="google-login-btn" class="btn" style="height: 44px; background: #fff; border: 1px solid var(--border-strong); opacity: 0.5; pointer-events: none;">
-                <svg width="16" height="16" viewBox="0 0 24 24" style="margin-right: 8px;"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-                <span id="google-login-text">読み込み中...</span>
-            </button>
-        </div>
-    </div>
-
+    <!-- 料金プランモーダル -->
     <div id="pricing-modal" class="pricing-overlay hidden">
-        <div class="modal-content" style="max-width: 500px;">
-            <div id="close-pricing-btn" style="position: absolute; top: 16px; right: 16px; cursor: pointer; color: var(--text-muted); font-size: 18px;">✕</div>
-            <h2 style="font-size: 18px; font-weight: 700; margin-bottom: 24px; text-align: center;">プラン管理</h2>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px;">
-                <div style="border: 1px solid var(--border-light); border-radius: 8px; padding: 16px; text-align: center;">
-                    <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">FREE</div>
-                    <div style="font-size: 20px; font-weight: 700; margin-bottom: 12px;">$0</div>
-                    <button class="btn" disabled style="font-size: 11px; padding: 6px;">現在のプラン</button>
-                </div>
-                <div style="border: 1px solid var(--accent-primary); background: #f0f7ff; border-radius: 8px; padding: 16px; text-align: center;">
-                    <div style="font-size: 11px; color: var(--accent-primary); margin-bottom: 4px;">STANDARD</div>
-                    <div style="font-size: 20px; font-weight: 700; margin-bottom: 12px;">$18</div>
-                    <button id="plan-btn-pro" data-plan="pro" class="btn btn-primary" style="font-size: 11px; padding: 6px;">変更する</button>
-                </div>
-            </div>
+        <div class="login-modal" style="max-width: 960px; width: 95%; padding: 40px;">
+            <div id="close-pricing-btn" style="position:absolute;top:16px;right:20px;cursor:pointer;color:#9ca3af;font-size:22px;">✕</div>
+            <h2 class="pricing-title">料金プラン</h2>
 
-            <h3 style="font-size: 12px; font-weight: 700; color: var(--text-secondary); margin-bottom: 12px;">追加クレジット</h3>
-            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
-                <button class="btn btn-addon" data-addon="topup_10" style="font-size: 10px; padding: 8px 4px;">10回 / $5</button>
-                <button class="btn btn-addon" data-addon="topup_50" style="font-size: 10px; padding: 8px 4px;">50回 / $20</button>
-                <button class="btn btn-addon" data-addon="topup_200" style="font-size: 10px; padding: 8px 4px;">200回 / $70</button>
+            <div class="pricing-grid" style="grid-template-columns: repeat(4,1fr); gap:12px; width:100%; margin-bottom:24px;">
+                <div class="pricing-card">
+                    <div class="tier-name">Free</div>
+                    <div class="tier-price">$0<span>/月</span></div>
+                    <div class="tier-description">まずは試したい方へ</div>
+                    <ul class="tier-features"><li>月間 10 回</li></ul>
+                    <button id="plan-btn-free" class="btn-plan btn-outline" disabled>現在のプラン</button>
+                </div>
+                <div class="pricing-card">
+                    <div class="tier-name">Lite</div>
+                    <div class="tier-price">$5<span>/月</span></div>
+                    <div class="tier-description">気軽に使いたい方へ</div>
+                    <ul class="tier-features"><li>月間 30 回</li></ul>
+                    <button id="plan-btn-lite" class="btn-plan btn-outline" data-plan="lite">Liteプランへ</button>
+                </div>
+                <div class="pricing-card featured">
+                    <div class="badge-featured">おすすめ</div>
+                    <div class="tier-name">Plus</div>
+                    <div class="tier-price">$10<span>/月</span></div>
+                    <div class="tier-description">日々の提案をより高品質に</div>
+                    <ul class="tier-features"><li>月間 70 回</li></ul>
+                    <button id="plan-btn-plus" class="btn-plan btn-plan-pro" data-plan="plus">Plusプランへ</button>
+                </div>
+                <div class="pricing-card">
+                    <div class="tier-name">Max</div>
+                    <div class="tier-price">$20<span>/月</span></div>
+                    <div class="tier-description">ヘビーユーザー向け</div>
+                    <ul class="tier-features"><li>月間 200 回</li></ul>
+                    <button id="plan-btn-max" class="btn-plan btn-plan-pro" data-plan="max">Maxプランへ</button>
+                </div>
             </div>
         </div>
     </div>
 
+
+    <!-- ローディング -->
     <div id="loading-overlay" class="loading-overlay hidden">
         <div class="spinner"></div>
-        <p style="font-size: 13px; font-weight: 600; margin-top: 12px;">処理中...</p>
+        <p style="font-size:13px;color:#374151;">処理中...</p>
+    </div>
+    <div id="click-blocker" class="click-blocker"></div>
+
+    <!-- ヘッダー -->
+    <header class="header">
+        <div class="header-logo">
+            <div class="logo-icon-box">+</div>
+            <span class="header-title">PersImage</span>
+        </div>
+        <div class="header-actions hidden" id="user-info">
+            <span class="credit-badge">残り：<span id="credit-count">--</span> 回</span>
+            <span id="user-plan" class="plan-badge">--</span>
+            <button id="show-pricing-btn" class="header-link">プラン管理</button>
+            <button id="logout-btn" class="header-link header-link-red">ログアウト</button>
+            <!-- JS互換用 非表示 -->
+            <span id="user-email" style="display:none;"></span>
+            <span id="addon-credit-count" style="display:none;"></span>
+        </div>
+        <div id="login-btn-area">
+            <button id="google-login-btn" class="header-link" style="font-weight:600;color:var(--accent-blue);text-decoration:none;">ログイン</button>
+        </div>
+    </header>
+
+    <!-- アプリ本体 -->
+    <div class="app-container">
+        <aside class="sidebar">
+
+            <div class="section">
+                <div class="section-label">背景設定</div>
+                <button class="btn btn-default" id="open-bg-btn" disabled>背景写真を読み込む</button>
+                <input type="file" id="bg-input" accept="image/*" class="hidden">
+            </div>
+
+            <div class="section">
+                <div class="section-label">要素の追加</div>
+                <div class="btn-row">
+                    <button class="btn btn-default" id="add-photo-btn">写真</button>
+                    <button class="btn btn-default" id="add-sketch-btn">イラスト</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <button class="btn btn-blue" id="blend-btn" disabled>背景に合成（1回）</button>
+            </div>
+
+            <div class="section">
+                <div class="section-label">テキスト指示</div>
+                <textarea class="textarea" placeholder="例：空を夕方にする、木を増やす..."></textarea>
+                <button class="btn btn-dark" id="ai-instruct-btn">テキスト指示を実行（1回）</button>
+            </div>
+
+            <button class="btn btn-green" id="export-btn">画像を保存 (PNG)</button>
+
+            <div class="section" style="display:none;">
+                <select id="quality-select">
+                    <option value="high">High ($0.08)</option>
+                    <option value="medium" selected>Medium ($0.04)</option>
+                    <option value="low">Low ($0.02)</option>
+                </select>
+            </div>
+
+            <div class="ad-space"></div>
+
+        </aside>
+
+        <main class="main-content">
+            <div class="canvas-wrapper" id="canvas-wrapper">
+                <canvas id="main-canvas"></canvas>
+
+                <!-- キャンバス右下オーバーレイボタン -->
+                <div class="canvas-overlay-btns">
+                    <button class="icon-btn" id="undo-btn" title="元に戻す" disabled>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="9 14 4 9 9 4"/>
+                            <path d="M20 20v-7a4 4 0 0 0-4-4H4"/>
+                        </svg>
+                    </button>
+                    <button class="icon-btn icon-btn-red" id="clear-btn" title="クリア" disabled>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6l-1 14H6L5 6"/>
+                            <path d="M10 11v6M14 11v6"/>
+                            <path d="M9 6V4h6v2"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </main>
     </div>
 
-    <div id="click-blocker" class="click-blocker"></div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
@@ -177,46 +161,87 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
 
+        const provider = new GoogleAuthProvider();
+
         onAuthStateChanged(auth, async (user) => {
-            const overlay = document.getElementById('login-overlay');
             const pricingModal = document.getElementById('pricing-modal');
+            const userInfo = document.getElementById('user-info');
+            const loginBtnArea = document.getElementById('login-btn-area');
+
             if (user) {
                 window.currentUserUID = user.uid;
-                overlay.style.display = 'none';
-                document.getElementById('user-info').classList.remove('hidden');
+                userInfo.classList.remove('hidden');
+                loginBtnArea.style.display = 'none';
+                document.getElementById('user-email').textContent = user.email;
+
                 fetch('/api/user/sync', { method: 'POST', headers: { 'X-User-ID': user.uid } })
-                    .then(res => res.json()).then(data => {
-                        if(data.credits !== undefined) document.getElementById('credit-count').textContent = data.credits;
-                        if(data.plan !== undefined) {
-                            const btnPro = document.getElementById('plan-btn-pro');
-                            if (data.plan.toUpperCase() === 'STANDARD') {
-                                btnPro.textContent = '契約中';
-                                btnPro.disabled = true;
-                            }
+                    .then(r => r.json()).then(data => {
+                        const credits = data.credits ?? 0;
+                        const addon = data.addon_credits ?? 0;
+                        document.getElementById('credit-count').textContent = credits + addon;
+                        document.getElementById('addon-credit-count').textContent = addon;
+                        if (data.plan !== undefined) {
+                            window.currentUserPlan = data.plan;
+                            const planLabel = data.plan.toUpperCase();
+                            const planDisplay = data.plan.charAt(0).toUpperCase() + data.plan.slice(1).toLowerCase();
+                            document.getElementById('user-plan').textContent = planDisplay;
+                            const planDefs = [
+                                { id: 'plan-btn-free', key: 'FREE',  upgradeText: null },
+                                { id: 'plan-btn-lite', key: 'LITE',  upgradeText: 'Liteプランへ' },
+                                { id: 'plan-btn-plus', key: 'PLUS',  upgradeText: 'Plusプランへ' },
+                                { id: 'plan-btn-max',  key: 'MAX',   upgradeText: 'Maxプランへ' },
+                            ];
+                            const isPaid = planLabel !== 'FREE';
+                            planDefs.forEach(def => {
+                                const btn = document.getElementById(def.id);
+                                if (!btn) return;
+                                if (def.key === planLabel) {
+                                    btn.textContent = '現在のプラン';
+                                    btn.disabled = true;
+                                } else if (def.key === 'FREE') {
+                                    if (isPaid) {
+                                        btn.textContent = '無料プランに変更';
+                                        btn.disabled = false;
+                                        btn.onclick = () => {
+                                            if (confirm('無料プランに変更しますか？')) {
+                                                fetch('/api/user/downgrade', { method: 'POST', headers: { 'X-User-ID': user.uid } })
+                                                    .then(r => r.json()).then(d => {
+                                                        if (d.status === 'success') { alert('無料プランに変更しました。'); location.reload(); }
+                                                        else alert('変更に失敗しました。');
+                                                    });
+                                            }
+                                        };
+                                    } else {
+                                        btn.textContent = '現在のプラン';
+                                        btn.disabled = true;
+                                    }
+                                } else {
+                                    btn.textContent = def.upgradeText;
+                                    btn.disabled = false;
+                                }
+                            });
                         }
                     });
 
+                document.getElementById('open-bg-btn').disabled = false;
                 document.getElementById('show-pricing-btn').onclick = () => pricingModal.classList.remove('hidden');
                 document.getElementById('close-pricing-btn').onclick = () => pricingModal.classList.add('hidden');
-                document.getElementById('logout-btn').onclick = () => signOut(auth).then(() => window.location.reload());
+                document.getElementById('logout-btn').onclick = () => {
+                    if (confirm('ログアウトしますか？\n現在画面に表示されている画像は、ログアウトすると消去されます。\nよろしいですか？')) {
+                        if (typeof window.clearCanvas === 'function') window.clearCanvas();
+                        signOut(auth);
+                    }
+                };
             } else {
                 window.currentUserUID = null;
-                overlay.style.display = 'flex';
-                document.getElementById('user-info').classList.add('hidden');
-                
-                const loginBtn = document.getElementById('google-login-btn');
-                const loginText = document.getElementById('google-login-text');
-                if (loginBtn && loginText) {
-                    loginBtn.style.opacity = '1';
-                    loginBtn.style.pointerEvents = 'auto';
-                    loginText.textContent = 'Googleアカウントでログイン';
-                }
+                window.currentUserPlan = null;
+                userInfo.classList.add('hidden');
+                loginBtnArea.style.display = '';
+                document.getElementById('open-bg-btn').disabled = true;
             }
         });
-        document.getElementById('google-login-btn').onclick = () => {
-            signInWithPopup(auth, new GoogleAuthProvider()).catch(err => alert(err.message));
-        };
+        document.getElementById('google-login-btn').onclick = () => signInWithPopup(auth, provider);
     </script>
-    <script type="module" src="/static/app.js?v=5"></script>
+    <script type="module" src="/static/app.js?v=3"></script>
 </body>
 </html>

@@ -131,7 +131,7 @@ async def get_current_user(x_user_id: str = Header(None), db: Session = Depends(
         return None
     user = db.query(User).filter(User.firebase_uid == x_user_id).first()
     if not user:
-        user = User(firebase_uid=x_user_id, credits=5, plan="free")
+        user = User(firebase_uid=x_user_id, credits=10, plan="free")
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -147,7 +147,7 @@ async def sync_user(db: Session = Depends(get_db), x_user_id: str = Header(None)
     user = db.query(User).filter(User.firebase_uid == x_user_id).first()
     if not user:
         print(f"新規ユーザー作成: {x_user_id}")
-        user = User(firebase_uid=x_user_id, credits=5, plan="free")
+        user = User(firebase_uid=x_user_id, credits=10, plan="free")
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -192,22 +192,24 @@ async def upload_bg(file: UploadFile = File(...)):
 @app.post("/api/sketch-to-real")
 async def sketch_to_real(
     file: UploadFile = File(...),
+    quality: str = Form("medium"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """手書きイラストをフォトリアルに変換（OpenAI連携）"""
     if not OPENAI_API_KEY or OPENAI_API_KEY == "ここにOpenAIのAPIキーを貼り付けてください":
         return JSONResponse(status_code=500, content={"error": "OPENAI_API_KEYがバックエンドに設定されていません"})
-        
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
     total = user.credits + (user.addon_credits or 0)
-    if not user or total <= 0:
+    if total <= 0:
         return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
 
     try:
         contents = await file.read()
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
         # 既存のロジックをそのまま利用
-        result_img = ImageProcessor.sketch_to_realistic(img, api_token=OPENAI_API_KEY)
+        result_img = ImageProcessor.sketch_to_realistic(img, api_token=OPENAI_API_KEY, quality=quality)
 
         if user.credits > 0:
             user.credits -= 1
@@ -228,21 +230,23 @@ async def sketch_to_real(
 async def edit_instruction(
     file: UploadFile = File(...),
     instruction: str = Form(...),
+    quality: str = Form("medium"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """テキスト指示による画像編集（OpenAI連携）"""
     if not OPENAI_API_KEY or OPENAI_API_KEY == "ここにOpenAIのAPIキーを貼り付けてください":
         return JSONResponse(status_code=500, content={"error": "OPENAI_API_KEYがバックエンドに設定されていません"})
-        
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
     total = user.credits + (user.addon_credits or 0)
-    if not user or total <= 0:
+    if total <= 0:
         return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
 
     try:
         contents = await file.read()
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
-        result_img = ImageProcessor.edit_by_instruction(img, instruction, api_token=OPENAI_API_KEY)
+        result_img = ImageProcessor.edit_by_instruction(img, instruction, api_token=OPENAI_API_KEY, quality=quality)
 
         if user.credits > 0:
             user.credits -= 1
@@ -269,15 +273,17 @@ async def blend_endpoint(
     height: float = Form(...),
     angle: float = Form(...),
     is_sketch: bool = Form(False),
+    quality: str = Form("medium"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """建物を背景に馴染ませる（ポアソンブレンディング＋OpenAI仕上げ）"""
     if not OPENAI_API_KEY or OPENAI_API_KEY == "ここにOpenAIのAPIキーを貼り付けてください":
         return JSONResponse(status_code=500, content={"error": "OPENAI_API_KEYがバックエンドに設定されていません"})
-        
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
     total = user.credits + (user.addon_credits or 0)
-    if not user or total <= 0:
+    if total <= 0:
         return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
 
     try:
@@ -285,10 +291,6 @@ async def blend_endpoint(
         bld_contents = await bld_file.read()
         bg_img = Image.open(io.BytesIO(bg_contents)).convert("RGBA")
         bld_img = Image.open(io.BytesIO(bld_contents)).convert("RGBA")
-
-        if is_sketch:
-            print("Converting sketch to realistic before blending...")
-            bld_img = ImageProcessor.sketch_to_realistic(bld_img, api_token=OPENAI_API_KEY)
 
         result_img = ImageProcessor.blend_building(
             background=bg_img,
@@ -298,7 +300,9 @@ async def blend_endpoint(
             width=int(width),
             height=int(height),
             angle=angle,
-            api_token=OPENAI_API_KEY
+            api_token=OPENAI_API_KEY,
+            is_sketch=is_sketch,
+            quality=quality
         )
 
         if user.credits > 0:
@@ -374,9 +378,9 @@ async def verify_payment(request: Request, user: User = Depends(get_current_user
         addon = user.addon_credits if user.addon_credits is not None else 0
         return {"status": "already_processed", "credits": user.credits, "addon_credits": addon}
 
-    if item_name == "pro":
+    if item_name in ("lite", "plus", "max"):
         user.credits = credits_to_add
-        user.plan = "standard"
+        user.plan = item_name
         sub_id = getattr(session, 'subscription', None)
         if sub_id:
             user.stripe_subscription_id = sub_id
@@ -398,27 +402,21 @@ class CheckoutRequest(BaseModel):
 async def create_checkout_session(request: CheckoutRequest, user: User = Depends(get_current_user)):
     # サブスクリプションプランの設定
     sub_configs = {
-        "pro": {
-            "price_id": os.getenv("STRIPE_PRICE_ID_STANDARD", "price_dummy_standard"),
-            "credits": 150
-        }
+        "lite": {
+            "price_id": os.getenv("STRIPE_PRICE_ID_LITE", "price_dummy_lite"),
+            "credits": 30
+        },
+        "plus": {
+            "price_id": os.getenv("STRIPE_PRICE_ID_PLUS", "price_dummy_plus"),
+            "credits": 70
+        },
+        "max": {
+            "price_id": os.getenv("STRIPE_PRICE_ID_MAX", "price_dummy_max"),
+            "credits": 200
+        },
     }
 
-    # アドオン（追加チケット）の設定
-    addon_configs = {
-        "topup_10": {
-            "price_id": os.getenv("STRIPE_PRICE_ID_TOPUP_10", "price_dummy_10"),
-            "credits": 10
-        },
-        "topup_50": {
-            "price_id": os.getenv("STRIPE_PRICE_ID_TOPUP_50", "price_dummy_50"),
-            "credits": 50
-        },
-        "topup_200": {
-            "price_id": os.getenv("STRIPE_PRICE_ID_TOPUP_200", "price_dummy_200"),
-            "credits": 200
-        }
-    }
+    addon_configs = {}
 
     if request.plan:
         config = sub_configs.get(request.plan)
@@ -506,10 +504,10 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                 if session_id and user.last_session_id == session_id:
                     print(f"SKIPPED: session {session_id} already processed by verify-payment")
                 else:
-                    if item_name == 'pro':
+                    if item_name in ('lite', 'plus', 'max'):
                         # サブスク初回: クレジットをリセット付与・プラン更新
                         user.credits = credits_to_add
-                        user.plan = 'standard'
+                        user.plan = item_name
                         sub_id = getattr(session, 'subscription', None)
                         if sub_id:
                             user.stripe_subscription_id = sub_id
@@ -539,7 +537,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             subscription = stripe.Subscription.retrieve(sub_id)
             sub_metadata = getattr(subscription, 'metadata', None) or {}
             firebase_uid = getattr(sub_metadata, 'firebase_uid', None)
-            credits_to_add = int(getattr(sub_metadata, 'credits_to_add', None) or 150)
+            credits_to_add = int(getattr(sub_metadata, 'credits_to_add', None) or 30)
 
             if firebase_uid:
                 user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
@@ -556,6 +554,54 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             print(f"ERROR: Failed to process recurring payment: {e}")
     
     return {"status": "success"}
+
+@app.post("/api/change-plan")
+async def change_plan(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """既存サブスクリプションのプラン変更（日割り精算）"""
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+
+    body = await request.json()
+    new_plan = body.get("plan")
+
+    plan_configs = {
+        "lite": {"price_id": os.getenv("STRIPE_PRICE_ID_LITE", "price_dummy_lite"), "credits": 30},
+        "plus": {"price_id": os.getenv("STRIPE_PRICE_ID_PLUS", "price_dummy_plus"), "credits": 70},
+        "max":  {"price_id": os.getenv("STRIPE_PRICE_ID_MAX", "price_dummy_max"),  "credits": 200},
+    }
+
+    config = plan_configs.get(new_plan)
+    if not config:
+        return JSONResponse(status_code=400, content={"error": "無効なプランです"})
+
+    if not user.stripe_subscription_id:
+        return JSONResponse(status_code=400, content={"error": "有効なサブスクリプションがありません"})
+
+    try:
+        subscription = stripe.Subscription.retrieve(user.stripe_subscription_id)
+        item_id = subscription["items"]["data"][0]["id"]
+
+        stripe.Subscription.modify(
+            user.stripe_subscription_id,
+            items=[{"id": item_id, "price": config["price_id"]}],
+            proration_behavior="create_prorations",
+            metadata={
+                "firebase_uid": user.firebase_uid,
+                "credits_to_add": str(config["credits"]),
+                "item_name": new_plan,
+            }
+        )
+
+        user.plan = new_plan
+        user.credits = config["credits"]
+        db.commit()
+
+        print(f"change-plan: user={user.firebase_uid}, plan={new_plan}, credits={config['credits']}")
+        return {"status": "success", "plan": new_plan, "credits": config["credits"]}
+    except Exception as e:
+        print(f"change-plan error: {e}")
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
 
 @app.post("/api/user/downgrade")
 async def downgrade_user(user: User = Depends(get_current_user), db: Session = Depends(get_db)):

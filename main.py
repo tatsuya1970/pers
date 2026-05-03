@@ -19,7 +19,6 @@ import uuid
 import stripe
 import json
 from fastapi import Request
-from apscheduler.schedulers.background import BackgroundScheduler
 
 # .envファイルを読み込み（サーバー側にAPIキーを固定）
 load_dotenv()
@@ -35,24 +34,6 @@ from logic.image_processor import ImageProcessor
 
 app = FastAPI(title="PersImage SaaS - 建物パース合成")
 
-PLAN_CREDITS = {"lite": 30, "plus": 70, "max": 200}
-
-def monthly_credit_reset():
-    """毎月1日にStripe webhookの補完として有料プランのcreditsをリセット"""
-    from database import SessionLocal
-    db = SessionLocal()
-    try:
-        paid_users = db.query(User).filter(User.plan.in_(["lite", "plus", "max"])).all()
-        for user in paid_users:
-            allocation = PLAN_CREDITS.get(user.plan, 0)
-            if allocation > 0:
-                user.credits = allocation
-        db.commit()
-        print(f"[monthly_credit_reset] {len(paid_users)}人のクレジットをリセットしました")
-    except Exception as e:
-        print(f"[monthly_credit_reset] エラー: {e}")
-    finally:
-        db.close()
 
 @app.on_event("startup")
 async def startup_event():
@@ -85,11 +66,6 @@ async def startup_event():
         
     print("--- データベース更新完了 ---")
 
-    # 月次クレジットリセットスケジューラー起動
-    scheduler = BackgroundScheduler(timezone="Asia/Tokyo")
-    scheduler.add_job(monthly_credit_reset, 'cron', day=1, hour=3, minute=0)
-    scheduler.start()
-    print("--- 月次リセットスケジューラー起動完了（毎月1日 3:00 JST）---")
 
 ERROR_COOLDOWN_SECONDS = 3600  # 同じエラーメールは1時間に1度のみ送信
 last_error_times = {}

@@ -15,4 +15,3 @@ opencv-python-headless
 rembg
 scipy
 psycopg2-binary
-apscheduler

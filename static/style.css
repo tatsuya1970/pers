@@ -417,3 +417,13 @@ body {
     transition: background 0.15s;
 }
 .btn-addon:hover { background: rgba(255,255,255,0.1); }
+
+.feedback-link {
+    display: block;
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-decoration: underline;
+    padding: 6px 0;
+}
+.feedback-link:hover { color: var(--accent-blue); }

@@ -30,9 +30,68 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:8000")
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 print(f"DEBUG: Stripe API Key starts with: {stripe.api_key[:7] if stripe.api_key else 'None'}")
 
+ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
+
 from logic.image_processor import ImageProcessor
 
 app = FastAPI(title="PersImage SaaS - 建物パース合成")
+
+# ── メンテナンスモード ──
+maintenance_mode = False
+
+MAINTENANCE_HTML = """<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>メンテナンス中 - PersImage</title>
+  <style>
+    body { font-family: 'Helvetica Neue', sans-serif; background: #f3f4f6;
+           display: flex; align-items: center; justify-content: center;
+           height: 100vh; margin: 0; }
+    .box { background: #fff; border-radius: 12px; padding: 48px 40px;
+           text-align: center; max-width: 480px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
+    h1 { font-size: 20px; color: #111827; margin-bottom: 16px; }
+    p  { font-size: 14px; color: #6b7280; line-height: 1.7; margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>🔧 メンテナンス中</h1>
+    <p>大変申し訳ございません。<br>ただいまメンテナンス中です。<br>しばらく時間をおいてから、再度アクセスしてください。</p>
+  </div>
+</body>
+</html>"""
+
+@app.middleware("http")
+async def maintenance_middleware(request: Request, call_next):
+    if maintenance_mode:
+        path = request.url.path
+        # 管理者エンドポイントは通す
+        if path.startswith("/api/admin/"):
+            return await call_next(request)
+        return HTMLResponse(content=MAINTENANCE_HTML, status_code=503)
+    return await call_next(request)
+
+@app.post("/api/admin/maintenance/on")
+async def maintenance_on(request: Request):
+    global maintenance_mode
+    secret = request.headers.get("X-Admin-Secret", "")
+    if not ADMIN_SECRET or secret != ADMIN_SECRET:
+        return JSONResponse(status_code=403, content={"error": "Forbidden"})
+    maintenance_mode = True
+    print("MAINTENANCE MODE: ON")
+    return {"status": "maintenance_on"}
+
+@app.post("/api/admin/maintenance/off")
+async def maintenance_off(request: Request):
+    global maintenance_mode
+    secret = request.headers.get("X-Admin-Secret", "")
+    if not ADMIN_SECRET or secret != ADMIN_SECRET:
+        return JSONResponse(status_code=403, content={"error": "Forbidden"})
+    maintenance_mode = False
+    print("MAINTENANCE MODE: OFF")
+    return {"status": "maintenance_off"}
 
 
 @app.on_event("startup")
@@ -67,32 +126,43 @@ async def startup_event():
     print("--- データベース更新完了 ---")
 
 
-ERROR_COOLDOWN_SECONDS = 3600  # 同じエラーメールは1時間に1度のみ送信
+ERROR_COOLDOWN_SECONDS = 1800  # 同じエラーメールは30分に1度のみ送信
 last_error_times = {}
 
-def send_error_email_task(base_error: str, traceback_str: str):
+def send_error_email_task(base_error: str, traceback_str: str, user_id: str = None):
+    import datetime
     current_time = time.time()
-    
-    # レートリミット（スパム防止）: 同じエラーは指定時間送らない
+
+    # レートリミット（スパム防止）: 同じエラーは30分送らない
     if base_error in last_error_times:
         if current_time - last_error_times[base_error] < ERROR_COOLDOWN_SECONDS:
             print(f"Skipped sending email for repeated error: {base_error}")
             return
-            
-    # 送信履歴を更新
+
     last_error_times[base_error] = current_time
 
     smtp_server = os.getenv("SMTP_SERVER")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER")
     smtp_pass = os.getenv("SMTP_PASS")
-    
+
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    uid_str = user_id or "不明"
+
+    body = (
+        f"PersImageでシステムエラーが発生しました。\n\n"
+        f"【日時】\n{now_str}\n\n"
+        f"【ユーザーID】\n{uid_str}\n\n"
+        f"【エラー内容】\n{base_error}\n\n"
+        f"【詳細（Traceback）】\n{traceback_str}"
+    )
+
     if not all([smtp_server, smtp_user, smtp_pass]):
-        print("SMTP settings are missing. Would have sent email to tatsuya.takemura@gmail.com with error:\n", traceback_str)
+        print(f"SMTP未設定のためメール送信スキップ:\n{body}")
         return
 
-    msg = MIMEText(f"建物パース合成ツール（Web版）でシステムエラーが発生しました。\n\n【エラー内容】\n{base_error}\n\n【システム詳細（Traceback）】\n{traceback_str}")
-    msg['Subject'] = '【エラー通知】パース合成ツール システムエラー'
+    msg = MIMEText(body)
+    msg['Subject'] = '【エラー通知】PersImage システムエラー'
     msg['From'] = smtp_user
     msg['To'] = 'tatsuya.takemura@gmail.com'
 
@@ -225,7 +295,8 @@ async def sketch_to_real(
     except Exception as e:
         base_err = str(e)
         err_msg = traceback.format_exc()
-        threading.Thread(target=send_error_email_task, args=(base_err, err_msg)).start()
+        uid = user.firebase_uid if user else None
+        threading.Thread(target=send_error_email_task, args=(base_err, err_msg, uid)).start()
         return JSONResponse(status_code=500, content={"error": "大変申し訳ございません。ただいまご利用できない状況です。しばらく経ってからアクセス願います。"})
 
 @app.post("/api/instruction")
@@ -262,7 +333,8 @@ async def edit_instruction(
     except Exception as e:
         base_err = str(e)
         err_msg = traceback.format_exc()
-        threading.Thread(target=send_error_email_task, args=(base_err, err_msg)).start()
+        uid = user.firebase_uid if user else None
+        threading.Thread(target=send_error_email_task, args=(base_err, err_msg, uid)).start()
         return JSONResponse(status_code=500, content={"error": "大変申し訳ございません。ただいまご利用できない状況です。しばらく経ってからアクセス願います。"})
 
 @app.post("/api/blend")
@@ -319,7 +391,8 @@ async def blend_endpoint(
     except Exception as e:
         base_err = str(e)
         err_msg = traceback.format_exc()
-        threading.Thread(target=send_error_email_task, args=(base_err, err_msg)).start()
+        uid = user.firebase_uid if user else None
+        threading.Thread(target=send_error_email_task, args=(base_err, err_msg, uid)).start()
         return JSONResponse(status_code=500, content={"error": "大変申し訳ございません。ただいまご利用できない状況です。しばらく経ってからアクセス願います。"})
 
 @app.post("/api/match-color")

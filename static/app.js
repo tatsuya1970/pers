@@ -346,8 +346,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (uid) {
                     fetch('/api/user/sync', { method: 'POST', headers: { 'X-User-ID': uid } })
                         .then(r => r.json()).then(d => {
-                            const total = (d.credits ?? 0) + (d.addon_credits ?? 0);
-                            document.getElementById('credit-count').textContent = total;
+                            document.getElementById('credit-count').textContent = d.credits ?? 0;
                         });
                 }
             } catch (err) {

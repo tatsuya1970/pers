@@ -178,7 +178,7 @@
                     .then(r => r.json()).then(data => {
                         const credits = data.credits ?? 0;
                         const addon = data.addon_credits ?? 0;
-                        document.getElementById('credit-count').textContent = credits + addon;
+                        document.getElementById('credit-count').textContent = credits;
                         document.getElementById('addon-credit-count').textContent = addon;
                         if (data.plan !== undefined) {
                             window.currentUserPlan = data.plan;

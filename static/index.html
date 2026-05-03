@@ -65,6 +65,7 @@
             <span class="header-title">PersImage</span>
         </div>
         <div class="header-actions hidden" id="user-info">
+            <span id="user-name" style="font-size:13px;color:var(--text-secondary);"></span>
             <span class="credit-badge">残り：<span id="credit-count">--</span> 回</span>
             <span id="user-plan" class="plan-badge">--</span>
             <button id="show-pricing-btn" class="header-link">プラン管理</button>
@@ -174,6 +175,7 @@
                 userInfo.classList.remove('hidden');
                 loginBtnArea.style.display = 'none';
                 document.getElementById('user-email').textContent = user.email;
+                document.getElementById('user-name').textContent = user.displayName || user.email;
 
                 fetch('/api/user/sync', { method: 'POST', headers: { 'X-User-ID': user.uid } })
                     .then(r => r.json()).then(data => {

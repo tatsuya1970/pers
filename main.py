@@ -117,6 +117,33 @@ async def maintenance_off(request: Request):
     print("MAINTENANCE MODE: OFF")
     return {"status": "maintenance_off"}
 
+@app.post("/api/admin/fix-user-plan")
+async def admin_fix_user_plan(request: Request, db: Session = Depends(get_db)):
+    ip = request.client.host if request.client else "unknown"
+    if not _check_admin_rate_limit(ip):
+        return JSONResponse(status_code=429, content={"error": "Too many attempts. Try again later."})
+    secret = request.headers.get("X-Admin-Secret", "")
+    if not ADMIN_SECRET or secret != ADMIN_SECRET:
+        _record_admin_failure(ip)
+        return JSONResponse(status_code=403, content={"error": "Forbidden"})
+    body = await request.json()
+    firebase_uid = body.get("firebase_uid")
+    plan = body.get("plan")
+    credits = body.get("credits")
+    if not firebase_uid or not plan or credits is None:
+        return JSONResponse(status_code=400, content={"error": "firebase_uid, plan, credits are required"})
+    user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
+    if not user:
+        return JSONResponse(status_code=404, content={"error": "User not found"})
+    old_plan = user.plan
+    old_credits = user.credits
+    user.plan = plan
+    user.credits = int(credits)
+    db.commit()
+    print(f"ADMIN FIX: uid={mask_uid(firebase_uid)} plan={old_plan}->{plan} credits={old_credits}->{credits}")
+    return {"status": "success", "firebase_uid": mask_uid(firebase_uid), "plan": user.plan, "credits": user.credits}
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     # APIエンドポイントはJSONでエラーを返す
@@ -581,9 +608,9 @@ async def verify_payment(request: Request, user: User = Depends(get_current_user
     if session.payment_status not in ("paid", "no_payment_required"):
         return {"status": "pending"}
 
-    metadata = dict((session.metadata or {}).items())
-    credits_to_add = int(metadata.get('credits_to_add') or 0)
-    item_name = metadata.get('item_name')
+    _meta = session.metadata
+    credits_to_add = int(getattr(_meta, 'credits_to_add', None) or 0)
+    item_name = getattr(_meta, 'item_name', None)
 
     # 二重付与防止: session_idをグローバルに確認（他ユーザーによる処理済みも含む）
     already_processed = db.query(User).filter(
@@ -709,9 +736,9 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
         firebase_uid = getattr(session, 'client_reference_id', None)
-        metadata = dict((getattr(session, 'metadata', None) or {}).items())
-        credits_to_add = int(metadata.get('credits_to_add') or 0)
-        item_name = metadata.get('item_name')
+        _meta = getattr(session, 'metadata', None)
+        credits_to_add = int(getattr(_meta, 'credits_to_add', None) or 0)
+        item_name = getattr(_meta, 'item_name', None)
 
         print(f"Webhook (session.completed) - uid: {mask_uid(firebase_uid)}, item: {item_name}")
 
@@ -762,8 +789,8 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         # サブスクリプション詳細を取得してユーザーを特定
         try:
             subscription = stripe.Subscription.retrieve(sub_id)
-            sub_metadata = dict((getattr(subscription, 'metadata', None) or {}).items())
-            firebase_uid = sub_metadata.get('firebase_uid')
+            _sub_meta = getattr(subscription, 'metadata', None)
+            firebase_uid = getattr(_sub_meta, 'firebase_uid', None)
 
             if firebase_uid:
                 user = db.query(User).filter(User.firebase_uid == firebase_uid).first()

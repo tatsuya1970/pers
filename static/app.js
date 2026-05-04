@@ -215,12 +215,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 formData.append('instruction', text);
                 formData.append('quality', quality);
 
-                const uid = window.currentUserUID;
-                const res = await fetch('/api/instruction', {
-                    method: 'POST',
-                    body: formData,
-                    headers: uid ? { 'X-User-ID': uid } : {}
-                });
+                const token = window.getIdToken ? await window.getIdToken() : null;
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 120000);
+                let res;
+                try {
+                    res = await fetch('/api/instruction', {
+                        method: 'POST',
+                        body: formData,
+                        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+                        signal: controller.signal
+                    });
+                } finally {
+                    clearTimeout(timer);
+                }
                 const data = await res.json();
                 if (data.error) throw new Error(data.error);
 
@@ -330,12 +338,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 formData.append('is_sketch', isSketch);
                 formData.append('quality', quality);
 
-                const uid = window.currentUserUID;
-                const res = await fetch('/api/blend', {
-                    method: 'POST',
-                    body: formData,
-                    headers: uid ? { 'X-User-ID': uid } : {}
-                });
+                const token = window.getIdToken ? await window.getIdToken() : null;
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 120000);
+                let res;
+                try {
+                    res = await fetch('/api/blend', {
+                        method: 'POST',
+                        body: formData,
+                        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+                        signal: controller.signal
+                    });
+                } finally {
+                    clearTimeout(timer);
+                }
                 const data = await res.json();
                 if (data.error) throw new Error(data.error);
 
@@ -343,8 +359,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 fCanvas.remove(obj);
                 setBackgroundFromURL(data.image_base64, false);
                 // クレジット残高を再取得して表示更新
-                if (uid) {
-                    fetch('/api/user/sync', { method: 'POST', headers: { 'X-User-ID': uid } })
+                if (token) {
+                    fetch('/api/user/sync', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
                         .then(r => r.json()).then(d => {
                             document.getElementById('credit-count').textContent = d.credits ?? 0;
                         });
@@ -395,8 +411,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // --- 決済ロジック ---
     async function handleCheckout(params) {
-        const uid = window.currentUserUID;
-        if (!uid) { alert('ログインが必要です。'); return; }
+        if (!window.currentUserUID) { alert('ログインが必要です。'); return; }
+        const token = window.getIdToken ? await window.getIdToken() : null;
+        if (!token) { alert('ログインが必要です。'); return; }
         try {
             if (loadingOverlay) loadingOverlay.classList.remove('hidden');
 
@@ -405,7 +422,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (params.plan && currentPlan !== 'free') {
                 const res = await fetch('/api/change-plan', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-User-ID': uid },
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                     body: JSON.stringify({ plan: params.plan })
                 });
                 const data = await res.json();
@@ -422,7 +439,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // 新規サブスク（FreeからのアップグレードはStripe Checkout）
             const res = await fetch('/api/create-checkout-session', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-User-ID': uid },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify(params)
             });
             const data = await res.json();

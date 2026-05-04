@@ -123,11 +123,12 @@
 
             if (sessionId) {
                 try {
+                    const idToken = await firebaseUser.getIdToken();
                     const res = await fetch("/api/verify-payment", {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
-                            "X-User-ID": firebaseUser.uid
+                            "Authorization": `Bearer ${idToken}`
                         },
                         body: JSON.stringify({ session_id: sessionId })
                     });

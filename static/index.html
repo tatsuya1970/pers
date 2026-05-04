@@ -164,6 +164,12 @@
         };
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
+        window._firebaseAuth = auth;
+        window.getIdToken = async () => {
+            const u = auth.currentUser;
+            if (!u) return null;
+            return await u.getIdToken();
+        };
 
         const provider = new GoogleAuthProvider();
 
@@ -179,7 +185,8 @@
                 document.getElementById('user-email').textContent = user.email;
                 document.getElementById('user-name').textContent = user.displayName || user.email;
 
-                fetch('/api/user/sync', { method: 'POST', headers: { 'X-User-ID': user.uid } })
+                const syncToken = await user.getIdToken();
+                fetch('/api/user/sync', { method: 'POST', headers: { 'Authorization': `Bearer ${syncToken}` } })
                     .then(r => r.json()).then(data => {
                         const credits = data.credits ?? 0;
                         const addon = data.addon_credits ?? 0;
@@ -207,9 +214,10 @@
                                     if (isPaid) {
                                         btn.textContent = '無料プランに変更';
                                         btn.disabled = false;
-                                        btn.onclick = () => {
+                                        btn.onclick = async () => {
                                             if (confirm('無料プランに変更しますか？')) {
-                                                fetch('/api/user/downgrade', { method: 'POST', headers: { 'X-User-ID': user.uid } })
+                                                const token = await window.getIdToken();
+                                                fetch('/api/user/downgrade', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
                                                     .then(r => r.json()).then(d => {
                                                         if (d.status === 'success') { alert('無料プランに変更しました。'); location.reload(); }
                                                         else alert('変更に失敗しました。');

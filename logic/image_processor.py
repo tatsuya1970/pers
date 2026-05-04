@@ -48,7 +48,7 @@ class ImageProcessor:
         """
         from openai import OpenAI
 
-        client = OpenAI(api_key=api_token)
+        client = OpenAI(api_key=api_token, timeout=60.0)
 
         buf = io.BytesIO()
         pil_image.convert("RGBA").save(buf, format="PNG")
@@ -141,7 +141,7 @@ class ImageProcessor:
         """
         from openai import OpenAI
 
-        client = OpenAI(api_key=api_token)
+        client = OpenAI(api_key=api_token, timeout=60.0)
 
         img = pil_image.convert("RGB")
         max_size = 1024
@@ -192,7 +192,7 @@ class ImageProcessor:
         """
         from openai import OpenAI
 
-        client = OpenAI(api_key=api_token)
+        client = OpenAI(api_key=api_token, timeout=60.0)
 
         rgb_image = pil_image.convert("RGB")
         max_size = 1024
@@ -316,7 +316,7 @@ class ImageProcessor:
         # ── OpenAI でリアルに仕上げ ──
         if api_token:
             from openai import OpenAI
-            client = OpenAI(api_key=api_token)
+            client = OpenAI(api_key=api_token, timeout=60.0)
 
             # OpenAI API は最大 1024x1024 なので縮小して送る
             rough_for_api = rough.convert("RGB")

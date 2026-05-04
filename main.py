@@ -19,6 +19,8 @@ import uuid
 import stripe
 import json
 from fastapi import Request
+import firebase_admin
+from firebase_admin import auth as firebase_auth, credentials as fb_credentials
 
 # .envファイルを読み込み（サーバー側にAPIキーを固定）
 load_dotenv()
@@ -28,9 +30,16 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:8000")
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
-print(f"DEBUG: Stripe API Key starts with: {stripe.api_key[:7] if stripe.api_key else 'None'}")
 
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
+
+# Firebase Admin SDK 初期化（IDトークン検証用）
+if not firebase_admin._apps:
+    _sa_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+    if not _sa_json:
+        raise RuntimeError("FATAL: FIREBASE_SERVICE_ACCOUNT_JSON is not set. Set this environment variable before starting the server.")
+    _cred = fb_credentials.Certificate(json.loads(_sa_json))
+    firebase_admin.initialize_app(_cred)
 
 from logic.image_processor import ImageProcessor
 
@@ -182,7 +191,7 @@ def send_error_email_task(base_error: str, traceback_str: str, user_id: str = No
     msg['To'] = 'tatsuya.takemura@gmail.com'
 
     try:
-        server = smtplib.SMTP(smtp_server, smtp_port)
+        server = smtplib.SMTP(smtp_server, smtp_port, timeout=10)
         server.starttls()
         server.login(smtp_user, smtp_pass)
         server.send_message(msg)
@@ -213,33 +222,42 @@ def pil_to_base64(img: Image.Image) -> str:
     img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
-async def get_current_user(x_user_id: str = Header(None), db: Session = Depends(get_db)):
-    if not x_user_id:
+async def get_current_user(authorization: str = Header(None), db: Session = Depends(get_db)):
+    if not authorization or not authorization.startswith("Bearer "):
         return None
-    user = db.query(User).filter(User.firebase_uid == x_user_id).first()
+    id_token = authorization.split(" ", 1)[1]
+    try:
+        decoded = firebase_auth.verify_id_token(id_token)
+        firebase_uid = decoded["uid"]
+    except Exception as e:
+        print(f"Token verification failed: {e}")
+        return None
+    user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
     if not user:
-        user = User(firebase_uid=x_user_id, credits=10, plan="free")
+        user = User(firebase_uid=firebase_uid, credits=10, plan="free")
         db.add(user)
         db.commit()
         db.refresh(user)
     return user
 
 @app.post("/api/user/sync")
-async def sync_user(db: Session = Depends(get_db), x_user_id: str = Header(None)):
-    print(f"--- ユーザー同期中: {x_user_id} ---")
-    if not x_user_id:
-        print("X-User-ID ヘッダーがありません")
-        return {"error": "User ID missing"}
-    
-    user = db.query(User).filter(User.firebase_uid == x_user_id).first()
+async def sync_user(db: Session = Depends(get_db), authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+    id_token = authorization.split(" ", 1)[1]
+    try:
+        decoded = firebase_auth.verify_id_token(id_token)
+        firebase_uid = decoded["uid"]
+    except Exception as e:
+        print(f"sync_user token error: {e}")
+        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+
+    user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
     if not user:
-        print(f"新規ユーザー作成: {x_user_id}")
-        user = User(firebase_uid=x_user_id, credits=10, plan="free")
+        user = User(firebase_uid=firebase_uid, credits=10, plan="free")
         db.add(user)
         db.commit()
         db.refresh(user)
-    else:
-        print(f"既存ユーザー確認: {x_user_id}, プラン: {user.plan}, クレジット: {user.credits}")
     addon = user.addon_credits if user.addon_credits is not None else 0
     return {"status": "success", "credits": user.credits, "addon_credits": addon, "plan": user.plan.upper()}
 
@@ -302,7 +320,8 @@ async def sketch_to_real(
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
 
         # クレジット先払い（AI失敗時は返金）
-        if user.credits > 0:
+        deducted_from = "credits" if user.credits > 0 else "addon"
+        if deducted_from == "credits":
             user.credits -= 1
         else:
             user.addon_credits -= 1
@@ -312,7 +331,7 @@ async def sketch_to_real(
             result_img = ImageProcessor.sketch_to_realistic(img, api_token=OPENAI_API_KEY, quality=quality)
         except Exception as e:
             # AI失敗 → クレジット返金
-            if user.credits >= 0:
+            if deducted_from == "credits":
                 user.credits += 1
             else:
                 user.addon_credits += 1
@@ -356,7 +375,8 @@ async def edit_instruction(
             return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限10MB）"})
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
 
-        if user.credits > 0:
+        deducted_from = "credits" if user.credits > 0 else "addon"
+        if deducted_from == "credits":
             user.credits -= 1
         else:
             user.addon_credits -= 1
@@ -365,7 +385,7 @@ async def edit_instruction(
         try:
             result_img = ImageProcessor.edit_by_instruction(img, instruction, api_token=OPENAI_API_KEY, quality=quality)
         except Exception as e:
-            if user.credits >= 0:
+            if deducted_from == "credits":
                 user.credits += 1
             else:
                 user.addon_credits += 1
@@ -417,7 +437,8 @@ async def blend_endpoint(
         bg_img = Image.open(io.BytesIO(bg_contents)).convert("RGBA")
         bld_img = Image.open(io.BytesIO(bld_contents)).convert("RGBA")
 
-        if user.credits > 0:
+        deducted_from = "credits" if user.credits > 0 else "addon"
+        if deducted_from == "credits":
             user.credits -= 1
         else:
             user.addon_credits -= 1
@@ -432,7 +453,7 @@ async def blend_endpoint(
                 is_sketch=is_sketch, quality=quality
             )
         except Exception as e:
-            if user.credits >= 0:
+            if deducted_from == "credits":
                 user.credits += 1
             else:
                 user.addon_credits += 1
@@ -491,17 +512,21 @@ async def verify_payment(request: Request, user: User = Depends(get_current_user
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
 
+    # セッション所有者チェック: このセッションがログインユーザーのものか確認
+    session_owner = getattr(session, 'client_reference_id', None)
+    if session_owner != user.firebase_uid:
+        return JSONResponse(status_code=403, content={"error": "このセッションへのアクセス権限がありません。"})
+
     # 支払い未完了は無視
     if session.payment_status not in ("paid", "no_payment_required"):
         return {"status": "pending"}
 
-    metadata = session.metadata or {}
-    credits_to_add = int(getattr(metadata, 'credits_to_add', None) or 0)
-    item_name = getattr(metadata, 'item_name', None)
+    metadata = dict(session.metadata or {})
+    credits_to_add = int(metadata.get('credits_to_add') or 0)
+    item_name = metadata.get('item_name')
 
-    # 二重付与防止: session_idを確認済みとして記録
+    # 二重付与防止: session_idをグローバルに確認（他ユーザーによる処理済みも含む）
     already_processed = db.query(User).filter(
-        User.firebase_uid == user.firebase_uid,
         User.last_session_id == session_id
     ).first()
     if already_processed:
@@ -530,6 +555,8 @@ class CheckoutRequest(BaseModel):
 
 @app.post("/api/create-checkout-session")
 async def create_checkout_session(request: CheckoutRequest, user: User = Depends(get_current_user)):
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
     # サブスクリプションプランの設定
     sub_configs = {
         "lite": {
@@ -620,9 +647,9 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
         firebase_uid = getattr(session, 'client_reference_id', None)
-        metadata = getattr(session, 'metadata', None) or {}
-        credits_to_add = int(getattr(metadata, 'credits_to_add', None) or 0)
-        item_name = getattr(metadata, 'item_name', None)
+        metadata = dict(getattr(session, 'metadata', None) or {})
+        credits_to_add = int(metadata.get('credits_to_add') or 0)
+        item_name = metadata.get('item_name')
 
         print(f"Webhook (session.completed) - firebase_uid: {firebase_uid}, credits: {credits_to_add}, item: {item_name}")
 
@@ -673,8 +700,8 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         # サブスクリプション詳細を取得してユーザーを特定
         try:
             subscription = stripe.Subscription.retrieve(sub_id)
-            sub_metadata = getattr(subscription, 'metadata', None) or {}
-            firebase_uid = getattr(sub_metadata, 'firebase_uid', None)
+            sub_metadata = dict(getattr(subscription, 'metadata', None) or {})
+            firebase_uid = sub_metadata.get('firebase_uid')
 
             if firebase_uid:
                 user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
@@ -691,7 +718,8 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                 print(f"ERROR: No firebase_uid in subscription metadata for {sub_id}")
         except Exception as e:
             print(f"ERROR: Failed to process recurring payment: {e}")
-    
+            return JSONResponse(status_code=500, content={"error": "internal error"})
+
     return {"status": "success"}
 
 @app.post("/api/change-plan")

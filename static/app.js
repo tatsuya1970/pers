@@ -491,7 +491,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await res.json();
                 if (data.status === 'success') {
                     const label = params.plan.charAt(0).toUpperCase() + params.plan.slice(1);
-                    alert(`${label}プランに変更しました。`);
+                    alert(`${label}プランに変更しました。\n\n※ 差額は次回の請求日にまとめて精算されます。`);
                     location.reload();
                 } else {
                     alert(data.error || 'エラーが発生しました');

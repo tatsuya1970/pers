@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 import datetime
 import os
@@ -35,6 +35,7 @@ class User(Base):
     addon_credits = Column(Integer, default=0)         # 追加購入分（繰り越し）
     stripe_subscription_id = Column(String, nullable=True) # 解約制御用に保持
     last_session_id = Column(String, nullable=True)    # 二重付与防止用
+    terms_agreed = Column(Boolean, default=False, nullable=False, server_default="0")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
     images = relationship("GeneratedImage", back_populates="owner")

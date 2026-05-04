@@ -182,6 +182,11 @@ async def startup_event():
             with database.engine.connect() as conn:
                 conn.execute(text("ALTER TABLE users ADD COLUMN last_session_id VARCHAR"))
                 conn.commit()
+        if "terms_agreed" not in columns:
+            print("Adding missing column: terms_agreed")
+            with database.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN terms_agreed BOOLEAN DEFAULT FALSE"))
+                conn.commit()
     except Exception as e:
         print(f"Migration error: {e}")
 
@@ -338,7 +343,25 @@ async def sync_user(db: Session = Depends(get_db), authorization: str = Header(N
         db.commit()
         db.refresh(user)
     addon = user.addon_credits if user.addon_credits is not None else 0
-    return {"status": "success", "credits": user.credits, "addon_credits": addon, "plan": user.plan.upper()}
+    return {"status": "success", "credits": user.credits, "addon_credits": addon, "plan": user.plan.upper(), "terms_agreed": bool(user.terms_agreed)}
+
+@app.post("/api/user/agree-terms")
+async def agree_terms(db: Session = Depends(get_db), authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+    id_token = authorization.split(" ", 1)[1]
+    try:
+        decoded = firebase_auth.verify_id_token(id_token)
+        firebase_uid = decoded["uid"]
+    except Exception:
+        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+    user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
+    if not user:
+        return JSONResponse(status_code=404, content={"error": "User not found"})
+    user.terms_agreed = True
+    db.commit()
+    return {"status": "success"}
+
 
 @app.get("/api/gallery")
 async def get_gallery(user: User = Depends(get_current_user), db: Session = Depends(get_db)):

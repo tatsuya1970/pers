@@ -10,6 +10,18 @@
 </head>
 <body>
 
+    <!-- 利用規約同意モーダル -->
+    <div id="terms-modal" class="pricing-overlay hidden">
+        <div class="login-modal" style="max-width: 480px; width: 95%; padding: 36px 32px;">
+            <h2 style="font-size:18px; font-weight:700; margin-bottom:12px;">PersImageへようこそ</h2>
+            <p style="font-size:13px; color:var(--text-secondary); margin-bottom:20px; line-height:1.7;">
+                ご利用前に<a href="/static/terms.html" target="_blank" style="color:var(--accent-blue);">利用規約</a>をご確認ください。<br>
+                「同意して始める」をクリックすることで、利用規約に同意したものとみなします。
+            </p>
+            <button id="terms-agree-btn" class="btn btn-blue" style="width:100%; font-size:14px; padding:12px;">同意して始める</button>
+        </div>
+    </div>
+
     <!-- 料金プランモーダル -->
     <div id="pricing-modal" class="pricing-overlay hidden">
         <div class="login-modal" style="max-width: 960px; width: 95%; padding: 40px;">
@@ -217,6 +229,9 @@
                         const addon = data.addon_credits ?? 0;
                         document.getElementById('credit-count').textContent = credits;
                         document.getElementById('addon-credit-count').textContent = addon;
+                        if (!data.terms_agreed) {
+                            document.getElementById('terms-modal').classList.remove('hidden');
+                        }
                         if (data.plan !== undefined) {
                             window.currentUserPlan = data.plan;
                             const planLabel = data.plan.toUpperCase();
@@ -264,6 +279,12 @@
                             });
                         }
                     });
+
+                document.getElementById('terms-agree-btn').onclick = async () => {
+                    const token = await user.getIdToken();
+                    await fetch('/api/user/agree-terms', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+                    document.getElementById('terms-modal').classList.add('hidden');
+                };
 
                 document.getElementById('open-bg-btn').disabled = false;
                 document.getElementById('show-pricing-btn').onclick = () => pricingModal.classList.remove('hidden');

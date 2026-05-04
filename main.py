@@ -213,16 +213,7 @@ def send_error_email_task(base_error: str, traceback_str: str, user_id: str = No
         print(f"Failed to send error email: {e}")
 
 os.makedirs("static", exist_ok=True)
-os.makedirs("static/uploads", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
-def save_generated_image_to_db(user_id: int, img_data: Image.Image, db: Session):
-    file_name = f"{uuid.uuid4()}.png"
-    rel_path = f"static/uploads/{file_name}"
-    img_data.save(rel_path, format="PNG")
-    new_img = GeneratedImage(user_id=user_id, file_path=f"/{rel_path}")
-    db.add(new_img)
-    return new_img
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
@@ -329,8 +320,8 @@ async def sketch_to_real(
 
     try:
         contents = await file.read()
-        if len(contents) > 20 * 1024 * 1024:
-            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限20MB）"})
+        if len(contents) > 10 * 1024 * 1024:
+            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限10MB）"})
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
 
         # クレジット先払い（AI失敗時は返金）
@@ -352,8 +343,6 @@ async def sketch_to_real(
             db.commit()
             raise
 
-        save_generated_image_to_db(user.id, result_img, db)
-        db.commit()
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
     except Exception as e:
@@ -388,8 +377,8 @@ async def edit_instruction(
 
     try:
         contents = await file.read()
-        if len(contents) > 20 * 1024 * 1024:
-            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限20MB）"})
+        if len(contents) > 10 * 1024 * 1024:
+            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限10MB）"})
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
 
         deducted_from = "credits" if user.credits > 0 else "addon"
@@ -409,8 +398,6 @@ async def edit_instruction(
             db.commit()
             raise
 
-        save_generated_image_to_db(user.id, result_img, db)
-        db.commit()
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
     except Exception as e:
@@ -449,8 +436,8 @@ async def blend_endpoint(
     try:
         bg_contents = await bg_file.read()
         bld_contents = await bld_file.read()
-        if len(bg_contents) > 20 * 1024 * 1024 or len(bld_contents) > 20 * 1024 * 1024:
-            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限20MB）"})
+        if len(bg_contents) > 10 * 1024 * 1024 or len(bld_contents) > 10 * 1024 * 1024:
+            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限10MB）"})
         bg_img = Image.open(io.BytesIO(bg_contents)).convert("RGBA")
         bld_img = Image.open(io.BytesIO(bld_contents)).convert("RGBA")
 
@@ -477,8 +464,6 @@ async def blend_endpoint(
             db.commit()
             raise
 
-        save_generated_image_to_db(user.id, result_img, db)
-        db.commit()
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
     except Exception as e:

@@ -509,8 +509,7 @@ class TestSketchToRealEndpoint:
         """quality が不正値でも 400 にならず medium として処理される"""
         with patch("firebase_admin.auth.verify_id_token", return_value={"uid": "test_uid_001"}), \
              patch("main.get_db", return_value=iter([db])), \
-             patch("main.ImageProcessor.sketch_to_realistic", return_value=Image.new("RGBA", (10, 10))), \
-             patch("main.save_generated_image_to_db"):
+             patch("main.ImageProcessor.sketch_to_realistic", return_value=Image.new("RGBA", (10, 10))):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.post("/api/sketch-to-real",
                                          files={"file": ("test.png", make_png_bytes(), "image/png")},
@@ -547,8 +546,7 @@ class TestInstructionEndpoint:
         """credits=0, addon=5 のとき addon から控除"""
         with patch("firebase_admin.auth.verify_id_token", return_value={"uid": "zero_uid_001"}), \
              patch("main.get_db", return_value=iter([db])), \
-             patch("main.ImageProcessor.edit_by_instruction", return_value=Image.new("RGBA", (10, 10))), \
-             patch("main.save_generated_image_to_db"):
+             patch("main.ImageProcessor.edit_by_instruction", return_value=Image.new("RGBA", (10, 10))):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.post("/api/instruction",
                                          files={"file": ("test.png", make_png_bytes(), "image/png")},

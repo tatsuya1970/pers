@@ -139,8 +139,7 @@ class TestScenario02_AuthToAIExecution:
 
         mock_result = Image.new("RGBA", (100, 100))
         with mock_firebase("ai_user_001"), mock_db(db), \
-             patch("main.ImageProcessor.edit_by_instruction", return_value=mock_result), \
-             patch("main.save_generated_image_to_db"):
+             patch("main.ImageProcessor.edit_by_instruction", return_value=mock_result):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.post(
                     "/api/instruction",
@@ -200,8 +199,7 @@ class TestScenario02_AuthToAIExecution:
 
         mock_result = Image.new("RGBA", (100, 100))
         with mock_firebase("addon_user"), mock_db(db), \
-             patch("main.ImageProcessor.edit_by_instruction", return_value=mock_result), \
-             patch("main.save_generated_image_to_db"):
+             patch("main.ImageProcessor.edit_by_instruction", return_value=mock_result):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.post(
                     "/api/instruction",
@@ -250,18 +248,15 @@ class TestScenario03_FileUploadToGallery:
     リスク: ファイル保存失敗時にDBにレコードだけ残る可能性
     """
 
-    async def test_AI実行後ギャラリーに画像が追加される(self, db):
+    async def test_AI実行後base64画像が返りクレジット控除される(self, db):
         user = User(firebase_uid="gallery_user", plan="lite", credits=5, addon_credits=0)
         db.add(user); db.commit(); db.refresh(user)
 
         mock_result = Image.new("RGBA", (200, 200))
-        saved_image = GeneratedImage(user_id=user.id, file_path="/static/uploads/test.png")
 
         with mock_firebase("gallery_user"), mock_db(db), \
-             patch("main.ImageProcessor.blend_building", return_value=mock_result), \
-             patch("main.save_generated_image_to_db", return_value=saved_image) as mock_save:
+             patch("main.ImageProcessor.blend_building", return_value=mock_result):
 
-            # AI実行
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 blend_resp = await client.post(
                     "/api/blend",
@@ -276,7 +271,7 @@ class TestScenario03_FileUploadToGallery:
 
         assert blend_resp.status_code == 200
         assert blend_resp.json()["status"] == "success"
-        mock_save.assert_called_once()
+        assert "image_base64" in blend_resp.json()
         db.refresh(user)
         assert user.credits == 4  # 5 → 4
 
@@ -344,8 +339,7 @@ class TestScenario04_PaymentToPermission:
         # Step 2: クレジット付与後にAI実行が可能
         mock_result = Image.new("RGBA", (100, 100))
         with mock_firebase("purchase_user"), mock_db(db), \
-             patch("main.ImageProcessor.edit_by_instruction", return_value=mock_result), \
-             patch("main.save_generated_image_to_db"):
+             patch("main.ImageProcessor.edit_by_instruction", return_value=mock_result):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 ai_resp = await client.post(
                     "/api/instruction",
@@ -472,8 +466,7 @@ class TestScenario05_IdempotencyAndDuplicatePrevention:
             return mock_result
 
         with mock_firebase("double_ai_user"), mock_db(db), \
-             patch("main.ImageProcessor.edit_by_instruction", side_effect=ai_side_effect), \
-             patch("main.save_generated_image_to_db"):
+             patch("main.ImageProcessor.edit_by_instruction", side_effect=ai_side_effect):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 for _ in range(2):
                     await client.post(

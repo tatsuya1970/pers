@@ -581,7 +581,7 @@ async def verify_payment(request: Request, user: User = Depends(get_current_user
     if session.payment_status not in ("paid", "no_payment_required"):
         return {"status": "pending"}
 
-    metadata = dict(session.metadata or {})
+    metadata = dict((session.metadata or {}).items())
     credits_to_add = int(metadata.get('credits_to_add') or 0)
     item_name = metadata.get('item_name')
 
@@ -709,7 +709,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
         firebase_uid = getattr(session, 'client_reference_id', None)
-        metadata = dict(getattr(session, 'metadata', None) or {})
+        metadata = dict((getattr(session, 'metadata', None) or {}).items())
         credits_to_add = int(metadata.get('credits_to_add') or 0)
         item_name = metadata.get('item_name')
 
@@ -762,7 +762,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         # サブスクリプション詳細を取得してユーザーを特定
         try:
             subscription = stripe.Subscription.retrieve(sub_id)
-            sub_metadata = dict(getattr(subscription, 'metadata', None) or {})
+            sub_metadata = dict((getattr(subscription, 'metadata', None) or {}).items())
             firebase_uid = sub_metadata.get('firebase_uid')
 
             if firebase_uid:

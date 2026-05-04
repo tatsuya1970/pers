@@ -366,7 +366,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 bgTmp.width = bgEl.naturalWidth || bgEl.width;
                 bgTmp.height = bgEl.naturalHeight || bgEl.height;
                 bgTmp.getContext('2d').drawImage(bgEl, 0, 0);
-                const bgBlob = await new Promise(resolve => bgTmp.toBlob(resolve, 'image/png'));
+                // 背景はJPEGで送信（写真のため透明度不要、ファイルサイズ圧縮）
+                const bgBlob = await new Promise(resolve => bgTmp.toBlob(resolve, 'image/jpeg', 0.85));
 
                 // 建物画像をblobとして取得（オリジナルサイズ）
                 const bldEl = obj.getElement();

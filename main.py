@@ -36,8 +36,18 @@ from logic.image_processor import ImageProcessor
 
 app = FastAPI(title="PersImage SaaS - 建物パース合成")
 
-# ── メンテナンスモード ──
-maintenance_mode = False
+# ── メンテナンスモード（ファイルで永続化：再起動後も維持） ──
+MAINTENANCE_FLAG_FILE = "/tmp/maintenance.flag"
+
+def is_maintenance() -> bool:
+    return os.path.exists(MAINTENANCE_FLAG_FILE)
+
+def set_maintenance(on: bool):
+    if on:
+        open(MAINTENANCE_FLAG_FILE, "w").close()
+    else:
+        if os.path.exists(MAINTENANCE_FLAG_FILE):
+            os.remove(MAINTENANCE_FLAG_FILE)
 
 MAINTENANCE_HTML = """<!DOCTYPE html>
 <html lang="ja">
@@ -65,9 +75,8 @@ MAINTENANCE_HTML = """<!DOCTYPE html>
 
 @app.middleware("http")
 async def maintenance_middleware(request: Request, call_next):
-    if maintenance_mode:
+    if is_maintenance():
         path = request.url.path
-        # 管理者エンドポイントは通す
         if path.startswith("/api/admin/"):
             return await call_next(request)
         return HTMLResponse(content=MAINTENANCE_HTML, status_code=503)
@@ -75,21 +84,19 @@ async def maintenance_middleware(request: Request, call_next):
 
 @app.post("/api/admin/maintenance/on")
 async def maintenance_on(request: Request):
-    global maintenance_mode
     secret = request.headers.get("X-Admin-Secret", "")
     if not ADMIN_SECRET or secret != ADMIN_SECRET:
         return JSONResponse(status_code=403, content={"error": "Forbidden"})
-    maintenance_mode = True
+    set_maintenance(True)
     print("MAINTENANCE MODE: ON")
     return {"status": "maintenance_on"}
 
 @app.post("/api/admin/maintenance/off")
 async def maintenance_off(request: Request):
-    global maintenance_mode
     secret = request.headers.get("X-Admin-Secret", "")
     if not ADMIN_SECRET or secret != ADMIN_SECRET:
         return JSONResponse(status_code=403, content={"error": "Forbidden"})
-    maintenance_mode = False
+    set_maintenance(False)
     print("MAINTENANCE MODE: OFF")
     return {"status": "maintenance_off"}
 
@@ -285,19 +292,35 @@ async def sketch_to_real(
     if total <= 0:
         return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
 
+    if quality not in ("high", "medium", "low"):
+        quality = "medium"
+
     try:
         contents = await file.read()
+        if len(contents) > 10 * 1024 * 1024:
+            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限10MB）"})
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
-        # 既存のロジックをそのまま利用
-        result_img = ImageProcessor.sketch_to_realistic(img, api_token=OPENAI_API_KEY, quality=quality)
 
+        # クレジット先払い（AI失敗時は返金）
         if user.credits > 0:
             user.credits -= 1
         else:
             user.addon_credits -= 1
+        db.commit()
+
+        try:
+            result_img = ImageProcessor.sketch_to_realistic(img, api_token=OPENAI_API_KEY, quality=quality)
+        except Exception as e:
+            # AI失敗 → クレジット返金
+            if user.credits >= 0:
+                user.credits += 1
+            else:
+                user.addon_credits += 1
+            db.commit()
+            raise
+
         save_generated_image_to_db(user.id, result_img, db)
         db.commit()
-        
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
     except Exception as e:
@@ -324,18 +347,33 @@ async def edit_instruction(
     if total <= 0:
         return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
 
+    if quality not in ("high", "medium", "low"):
+        quality = "medium"
+
     try:
         contents = await file.read()
+        if len(contents) > 10 * 1024 * 1024:
+            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限10MB）"})
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
-        result_img = ImageProcessor.edit_by_instruction(img, instruction, api_token=OPENAI_API_KEY, quality=quality)
 
         if user.credits > 0:
             user.credits -= 1
         else:
             user.addon_credits -= 1
+        db.commit()
+
+        try:
+            result_img = ImageProcessor.edit_by_instruction(img, instruction, api_token=OPENAI_API_KEY, quality=quality)
+        except Exception as e:
+            if user.credits >= 0:
+                user.credits += 1
+            else:
+                user.addon_credits += 1
+            db.commit()
+            raise
+
         save_generated_image_to_db(user.id, result_img, db)
         db.commit()
-        
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
     except Exception as e:
@@ -368,32 +406,41 @@ async def blend_endpoint(
     if total <= 0:
         return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
 
+    if quality not in ("high", "medium", "low"):
+        quality = "medium"
+
     try:
         bg_contents = await bg_file.read()
         bld_contents = await bld_file.read()
+        if len(bg_contents) > 10 * 1024 * 1024 or len(bld_contents) > 10 * 1024 * 1024:
+            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限10MB）"})
         bg_img = Image.open(io.BytesIO(bg_contents)).convert("RGBA")
         bld_img = Image.open(io.BytesIO(bld_contents)).convert("RGBA")
-
-        result_img = ImageProcessor.blend_building(
-            background=bg_img,
-            building=bld_img,
-            center_x=int(cx),
-            center_y=int(cy),
-            width=int(width),
-            height=int(height),
-            angle=angle,
-            api_token=OPENAI_API_KEY,
-            is_sketch=is_sketch,
-            quality=quality
-        )
 
         if user.credits > 0:
             user.credits -= 1
         else:
             user.addon_credits -= 1
+        db.commit()
+
+        try:
+            result_img = ImageProcessor.blend_building(
+                background=bg_img, building=bld_img,
+                center_x=int(cx), center_y=int(cy),
+                width=int(width), height=int(height),
+                angle=angle, api_token=OPENAI_API_KEY,
+                is_sketch=is_sketch, quality=quality
+            )
+        except Exception as e:
+            if user.credits >= 0:
+                user.credits += 1
+            else:
+                user.addon_credits += 1
+            db.commit()
+            raise
+
         save_generated_image_to_db(user.id, result_img, db)
         db.commit()
-        
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
     except Exception as e:
@@ -613,6 +660,12 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         if not sub_id:
             return {"status": "skipped - no subscription id"}
 
+        # 初回サブスク開始時はcheckout.session.completedで処理済みのためスキップ
+        billing_reason = getattr(invoice, 'billing_reason', None)
+        if billing_reason == 'subscription_create':
+            print(f"Webhook (invoice.payment_succeeded) - skipped initial payment (billing_reason=subscription_create)")
+            return {"status": "skipped - initial payment"}
+
         print(f"Webhook (invoice.payment_succeeded) - sub_id: {sub_id}")
 
         plan_credits = {"lite": 30, "plus": 70, "max": 200}
@@ -694,9 +747,8 @@ async def downgrade_user(user: User = Depends(get_current_user), db: Session = D
     if not user:
         return JSONResponse(status_code=401, content={"error": "Unauthorized"})
     
-    # 無料プランに変更（サブスク分はゼロ、追加購入分は保持）
+    # プランをfreeに変更（クレジットは期間終了まで使えるよう保持）
     user.plan = 'free'
-    user.credits = 0
     
     # Stripeのサブスクリプションがあれば解約予約（期間終了時に停止）
     if user.stripe_subscription_id:
@@ -711,17 +763,6 @@ async def downgrade_user(user: User = Depends(get_current_user), db: Session = D
 
     db.commit()
     return {"status": "success", "message": "無料プランに変更されました。現在の期間終了後に自動更新が停止します。"}
-
-@app.post("/api/add-credits")
-async def add_credits(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    # デバッグ用/デモ用: 実際にはStripe経由のみにする場合はここを削除
-    if not user:
-        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
-    user.credits += 10
-    db.commit()
-    db.refresh(user)
-    return {"status": "success", "credits": user.credits}
-
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

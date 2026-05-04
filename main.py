@@ -139,9 +139,12 @@ async def admin_fix_user_plan(request: Request, db: Session = Depends(get_db)):
     old_credits = user.credits
     user.plan = plan
     user.credits = int(credits)
+    stripe_subscription_id = body.get("stripe_subscription_id")
+    if stripe_subscription_id:
+        user.stripe_subscription_id = stripe_subscription_id
     db.commit()
-    print(f"ADMIN FIX: uid={mask_uid(firebase_uid)} plan={old_plan}->{plan} credits={old_credits}->{credits}")
-    return {"status": "success", "firebase_uid": mask_uid(firebase_uid), "plan": user.plan, "credits": user.credits}
+    print(f"ADMIN FIX: uid={mask_uid(firebase_uid)} plan={old_plan}->{plan} credits={old_credits}->{credits} sub={stripe_subscription_id}")
+    return {"status": "success", "firebase_uid": mask_uid(firebase_uid), "plan": user.plan, "credits": user.credits, "stripe_subscription_id": user.stripe_subscription_id}
 
 
 @app.exception_handler(Exception)

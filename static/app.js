@@ -32,6 +32,56 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const dataUrlToBlob = async (url) => (await fetch(url)).blob();
 
+    // --- トースト通知 ---
+    function showToast(message, duration = 2800) {
+        let toast = document.getElementById('pers-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'pers-toast';
+            toast.style.cssText = [
+                'position:fixed', 'bottom:28px', 'left:50%', 'transform:translateX(-50%)',
+                'background:#111827', 'color:#fff', 'padding:10px 22px', 'border-radius:8px',
+                'font-size:13px', 'font-family:inherit', 'z-index:9999',
+                'opacity:0', 'transition:opacity 0.25s', 'pointer-events:none',
+                'white-space:nowrap', 'box-shadow:0 4px 12px rgba(0,0,0,0.25)'
+            ].join(';');
+            document.body.appendChild(toast);
+        }
+        toast.textContent = message;
+        toast.style.opacity = '1';
+        clearTimeout(toast._timer);
+        toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, duration);
+    }
+
+    // --- ローディングタイマー ---
+    let _loadingTimerID = null;
+    function startLoadingTimer(baseText) {
+        const p = loadingOverlay ? loadingOverlay.querySelector('p') : null;
+        if (!p) return;
+        let secs = 0;
+        p.textContent = baseText + '（0秒）';
+        _loadingTimerID = setInterval(() => {
+            secs++;
+            p.textContent = baseText + `（${secs}秒）`;
+        }, 1000);
+    }
+    function stopLoadingTimer() {
+        if (_loadingTimerID) { clearInterval(_loadingTimerID); _loadingTimerID = null; }
+    }
+
+    // --- クレジット表示更新 ---
+    async function refreshCredits(token) {
+        if (!token) return;
+        try {
+            const d = await fetch('/api/user/sync', {
+                method: 'POST', headers: { 'Authorization': `Bearer ${token}` }
+            }).then(r => r.json());
+            const remaining = d.credits ?? 0;
+            document.getElementById('credit-count').textContent = remaining;
+            return remaining;
+        } catch (_) {}
+    }
+
     // --- Fabric.js キャンバス初期化 ---
     if (!document.getElementById('main-canvas')) return;
     const fCanvas = new fabric.Canvas('main-canvas', {
@@ -200,8 +250,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             setControlsDisabled(true);
             if (loadingOverlay) {
-                loadingOverlay.querySelector('p').textContent = 'AIによる指示を実行中...';
                 loadingOverlay.classList.remove('hidden');
+                startLoadingTimer('AIによる指示を実行中... 通常20〜60秒かかります');
             }
 
             try {
@@ -229,15 +279,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 } finally {
                     clearTimeout(timer);
                 }
+                if (res.status === 402) {
+                    const modal = document.getElementById('pricing-modal');
+                    if (modal) modal.classList.remove('hidden');
+                    return;
+                }
                 const data = await res.json();
                 if (data.error) throw new Error(data.error);
 
                 setBackgroundFromURL(data.image_base64, false);
                 fCanvas.clear();
                 instructInput.value = '';
+                const remaining = await refreshCredits(token);
+                showToast(`✓ 完了（残り ${remaining ?? '?'} 回）`);
             } catch (err) {
                 alert(err.message);
             } finally {
+                stopLoadingTimer();
                 setControlsDisabled(false);
                 if (loadingOverlay) loadingOverlay.classList.add('hidden');
             }
@@ -297,8 +355,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             setControlsDisabled(true);
             if (loadingOverlay) {
-                loadingOverlay.querySelector('p').textContent = '画像を馴染ませています...';
                 loadingOverlay.classList.remove('hidden');
+                startLoadingTimer('画像を馴染ませています... 通常20〜60秒かかります');
             }
 
             try {
@@ -352,22 +410,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 } finally {
                     clearTimeout(timer);
                 }
+                if (res.status === 402) {
+                    const modal = document.getElementById('pricing-modal');
+                    if (modal) modal.classList.remove('hidden');
+                    return;
+                }
                 const data = await res.json();
                 if (data.error) throw new Error(data.error);
 
                 // 建物オブジェクトを削除して結果を背景に反映
                 fCanvas.remove(obj);
                 setBackgroundFromURL(data.image_base64, false);
-                // クレジット残高を再取得して表示更新
-                if (token) {
-                    fetch('/api/user/sync', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
-                        .then(r => r.json()).then(d => {
-                            document.getElementById('credit-count').textContent = d.credits ?? 0;
-                        });
-                }
+                const remaining = await refreshCredits(token);
+                showToast(`✓ 合成完了（残り ${remaining ?? '?'} 回）`);
             } catch (err) {
                 alert(err.message);
             } finally {
+                stopLoadingTimer();
                 setControlsDisabled(false);
                 if (loadingOverlay) loadingOverlay.classList.add('hidden');
             }
@@ -391,6 +450,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (clearBtn) {
         clearBtn.addEventListener('click', () => {
             if (!fCanvas.backgroundImage) return;
+            if (!confirm('キャンバスをクリアしますか？\n現在の作業内容はすべて消去されます。')) return;
             clearCanvas();
         });
     }

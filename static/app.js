@@ -282,6 +282,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     clearTimeout(timer);
                 }
                 if (res.status === 402) {
+                    alert('チケットが不足しています。プランのアップグレードをご検討ください。');
                     const modal = document.getElementById('pricing-modal');
                     if (modal) modal.classList.remove('hidden');
                     return;
@@ -414,6 +415,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     clearTimeout(timer);
                 }
                 if (res.status === 402) {
+                    alert('チケットが不足しています。プランのアップグレードをご検討ください。');
                     const modal = document.getElementById('pricing-modal');
                     if (modal) modal.classList.remove('hidden');
                     return;

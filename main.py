@@ -867,8 +867,9 @@ async def downgrade_user(user: User = Depends(get_current_user), db: Session = D
     if not user:
         return JSONResponse(status_code=401, content={"error": "Unauthorized"})
     
-    # プランをfreeに変更（クレジットは期間終了まで使えるよう保持）
+    FREE_PLAN_LIMIT = 10
     user.plan = 'free'
+    user.credits = min(user.credits or 0, FREE_PLAN_LIMIT)
     
     # Stripeのサブスクリプションがあれば解約予約（期間終了時に停止）
     if user.stripe_subscription_id:

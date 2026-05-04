@@ -239,7 +239,7 @@
                                         btn.textContent = '無料プランに変更';
                                         btn.disabled = false;
                                         btn.onclick = async () => {
-                                            if (confirm('無料プランに変更しますか？\n\n※ 現在の契約期間が終了するまで、Stripeによる課金は継続されます。\n期間終了後に自動更新が停止し、無料プランに切り替わります。')) {
+                                            if (confirm('無料プランに変更しますか？\n\n⚠️ チケットが減る可能性があります。無料プランの上限（10枚）を超えている場合、10枚にリセットされます。\n\n※ 現在の契約期間が終了するまで、Stripeによる課金は継続されます。\n期間終了後に自動更新が停止し、無料プランに切り替わります。')) {
                                                 const token = await window.getIdToken();
                                                 fetch('/api/user/downgrade', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
                                                     .then(r => r.json()).then(d => {

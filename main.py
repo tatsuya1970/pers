@@ -93,6 +93,14 @@ async def maintenance_off(request: Request):
     print("MAINTENANCE MODE: OFF")
     return {"status": "maintenance_off"}
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    # APIエンドポイントはJSONでエラーを返す
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(status_code=500, content={"error": "大変申し訳ございません。ただいまご利用できない状況です。しばらく経ってからアクセス願います。"})
+    # 画面ページはメンテナンス画面を表示
+    return HTMLResponse(content=MAINTENANCE_HTML, status_code=503)
+
 
 @app.on_event("startup")
 async def startup_event():

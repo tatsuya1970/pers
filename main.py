@@ -315,8 +315,8 @@ async def sketch_to_real(
 
     try:
         contents = await file.read()
-        if len(contents) > 10 * 1024 * 1024:
-            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限10MB）"})
+        if len(contents) > 20 * 1024 * 1024:
+            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限20MB）"})
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
 
         # クレジット先払い（AI失敗時は返金）
@@ -371,8 +371,8 @@ async def edit_instruction(
 
     try:
         contents = await file.read()
-        if len(contents) > 10 * 1024 * 1024:
-            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限10MB）"})
+        if len(contents) > 20 * 1024 * 1024:
+            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限20MB）"})
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
 
         deducted_from = "credits" if user.credits > 0 else "addon"
@@ -432,8 +432,8 @@ async def blend_endpoint(
     try:
         bg_contents = await bg_file.read()
         bld_contents = await bld_file.read()
-        if len(bg_contents) > 10 * 1024 * 1024 or len(bld_contents) > 10 * 1024 * 1024:
-            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限10MB）"})
+        if len(bg_contents) > 20 * 1024 * 1024 or len(bld_contents) > 20 * 1024 * 1024:
+            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限20MB）"})
         bg_img = Image.open(io.BytesIO(bg_contents)).convert("RGBA")
         bld_img = Image.open(io.BytesIO(bld_contents)).convert("RGBA")
 

@@ -79,7 +79,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const remaining = d.credits ?? 0;
             document.getElementById('credit-count').textContent = remaining;
             return remaining;
-        } catch (_) {}
+        } catch (err) {
+            console.warn('refreshCredits failed:', err);
+        }
     }
 
     // --- Fabric.js キャンバス初期化 ---

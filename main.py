@@ -291,7 +291,9 @@ async def delete_gallery_image(image_id: int, user: User = Depends(get_current_u
     return {"status": "success", "message": "Deleted successfully."}
 
 @app.post("/api/upload")
-async def upload_bg(file: UploadFile = File(...)):
+async def upload_bg(file: UploadFile = File(...), user: User = Depends(get_current_user)):
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
     return {"filename": file.filename, "status": "success", "message": "Background received."}
 
 @app.post("/api/sketch-to-real")
@@ -365,6 +367,9 @@ async def edit_instruction(
     total = user.credits + (user.addon_credits or 0)
     if total <= 0:
         return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
+
+    if len(instruction) > 500:
+        return JSONResponse(status_code=400, content={"error": "テキスト指示は500文字以内で入力してください。"})
 
     if quality not in ("high", "medium", "low"):
         quality = "medium"
@@ -474,8 +479,11 @@ async def blend_endpoint(
 @app.post("/api/match-color")
 async def match_color_endpoint(
     bg_file: UploadFile = File(...),
-    bld_file: UploadFile = File(...)
+    bld_file: UploadFile = File(...),
+    user: User = Depends(get_current_user)
 ):
+    if not user:
+        return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
     try:
         bg_contents = await bg_file.read()
         bld_contents = await bld_file.read()

@@ -239,12 +239,16 @@
                                         btn.textContent = '無料プランに変更';
                                         btn.disabled = false;
                                         btn.onclick = async () => {
-                                            if (confirm('無料プランに変更しますか？')) {
+                                            if (confirm('無料プランに変更しますか？\n\n※ 現在の契約期間が終了するまで、Stripeによる課金は継続されます。\n期間終了後に自動更新が停止し、無料プランに切り替わります。')) {
                                                 const token = await window.getIdToken();
                                                 fetch('/api/user/downgrade', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
                                                     .then(r => r.json()).then(d => {
-                                                        if (d.status === 'success') { alert('無料プランに変更しました。'); location.reload(); }
-                                                        else alert('変更に失敗しました。');
+                                                        if (d.status === 'success') {
+                                                            alert('無料プランへの変更を受け付けました。\n\n現在の契約期間が終了するまでは引き続きご利用いただけます。\n期間終了後に自動更新が停止します。\n\n※ Stripeからの請求は現在の期間終了後に停止します。');
+                                                            location.reload();
+                                                        } else {
+                                                            alert('変更に失敗しました。');
+                                                        }
                                                     });
                                             }
                                         };

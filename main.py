@@ -146,7 +146,19 @@ async def startup_event():
                 conn.commit()
     except Exception as e:
         print(f"Migration error: {e}")
-        
+
+    # last_session_id にユニークインデックス追加（NULL除く、二重付与DB制約）
+    try:
+        with database.engine.connect() as conn:
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uix_users_last_session_id "
+                "ON users(last_session_id) WHERE last_session_id IS NOT NULL"
+            ))
+            conn.commit()
+        print("Unique index on last_session_id: OK")
+    except Exception as e:
+        print(f"Migration error (unique index): {e}")
+
     print("--- データベース更新完了 ---")
 
 
@@ -227,7 +239,7 @@ async def get_current_user(authorization: str = Header(None), db: Session = Depe
         return None
     id_token = authorization.split(" ", 1)[1]
     try:
-        decoded = firebase_auth.verify_id_token(id_token)
+        decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
         firebase_uid = decoded["uid"]
     except Exception as e:
         print(f"Token verification failed: {e}")
@@ -518,7 +530,8 @@ async def verify_payment(request: Request, user: User = Depends(get_current_user
     try:
         session = stripe.checkout.Session.retrieve(session_id)
     except Exception as e:
-        return JSONResponse(status_code=400, content={"error": str(e)})
+        print(f"Stripe error in verify_payment: {e}")
+        return JSONResponse(status_code=400, content={"error": "支払い確認に失敗しました。しばらく経ってから再度お試しください。"})
 
     # セッション所有者チェック: このセッションがログインユーザーのものか確認
     session_owner = getattr(session, 'client_reference_id', None)
@@ -632,7 +645,7 @@ async def create_checkout_session(request: CheckoutRequest, user: User = Depends
         import traceback
         print("!!! STRIPE API ERROR !!!")
         print(traceback.format_exc())
-        return JSONResponse(status_code=400, content={"error": str(e)})
+        return JSONResponse(status_code=400, content={"error": "決済セッションの作成に失敗しました。しばらく経ってから再度お試しください。"})
 
 
 @app.post("/api/stripe-webhook")

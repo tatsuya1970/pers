@@ -93,8 +93,12 @@ async def maintenance_middleware(request: Request, call_next):
 
 @app.post("/api/admin/maintenance/on")
 async def maintenance_on(request: Request):
+    ip = request.client.host if request.client else "unknown"
+    if not _check_admin_rate_limit(ip):
+        return JSONResponse(status_code=429, content={"error": "Too many attempts. Try again later."})
     secret = request.headers.get("X-Admin-Secret", "")
     if not ADMIN_SECRET or secret != ADMIN_SECRET:
+        _record_admin_failure(ip)
         return JSONResponse(status_code=403, content={"error": "Forbidden"})
     set_maintenance(True)
     print("MAINTENANCE MODE: ON")
@@ -102,8 +106,12 @@ async def maintenance_on(request: Request):
 
 @app.post("/api/admin/maintenance/off")
 async def maintenance_off(request: Request):
+    ip = request.client.host if request.client else "unknown"
+    if not _check_admin_rate_limit(ip):
+        return JSONResponse(status_code=429, content={"error": "Too many attempts. Try again later."})
     secret = request.headers.get("X-Admin-Secret", "")
     if not ADMIN_SECRET or secret != ADMIN_SECRET:
+        _record_admin_failure(ip)
         return JSONResponse(status_code=403, content={"error": "Forbidden"})
     set_maintenance(False)
     print("MAINTENANCE MODE: OFF")
@@ -161,6 +169,27 @@ async def startup_event():
 
     print("--- データベース更新完了 ---")
 
+
+def mask_uid(uid) -> str:
+    """firebase_uid をログ出力用にマスク（先頭4文字のみ表示）"""
+    if not uid:
+        return "unknown"
+    return str(uid)[:4] + "..."
+
+# 管理APIのIPベースレート制限（5回失敗/15分でブロック）
+_admin_attempts: dict = {}
+_ADMIN_RATE_LIMIT_MAX = 5
+_ADMIN_RATE_LIMIT_WINDOW = 900  # 15分
+
+def _check_admin_rate_limit(ip: str) -> bool:
+    """True=許可、False=レート制限中"""
+    now = time.time()
+    attempts = [t for t in _admin_attempts.get(ip, []) if now - t < _ADMIN_RATE_LIMIT_WINDOW]
+    _admin_attempts[ip] = attempts
+    return len(attempts) < _ADMIN_RATE_LIMIT_MAX
+
+def _record_admin_failure(ip: str):
+    _admin_attempts.setdefault(ip, []).append(time.time())
 
 ERROR_COOLDOWN_SECONDS = 1800  # 同じエラーメールは30分に1度のみ送信
 last_error_times = {}
@@ -552,7 +581,7 @@ async def verify_payment(request: Request, user: User = Depends(get_current_user
     db.commit()
     db.refresh(user)
     addon = user.addon_credits if user.addon_credits is not None else 0
-    print(f"verify-payment: user={user.firebase_uid}, item={item_name}, credits={user.credits}, addon={addon}")
+    print(f"verify-payment: user={mask_uid(user.firebase_uid)}, item={item_name}, credits={user.credits}")
     return {"status": "success", "credits": user.credits, "addon_credits": addon}
 
 class CheckoutRequest(BaseModel):
@@ -597,7 +626,7 @@ async def create_checkout_session(request: CheckoutRequest, user: User = Depends
         # デバッグログ
         print(f"--- Stripe Session Creation Start ---")
         print(f"Price ID: {config['price_id']}")
-        print(f"User firebase_uid: {user.firebase_uid}")
+        print(f"User uid: {mask_uid(user.firebase_uid)}")
         
         metadata = {
             "firebase_uid": user.firebase_uid,
@@ -657,7 +686,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         credits_to_add = int(metadata.get('credits_to_add') or 0)
         item_name = metadata.get('item_name')
 
-        print(f"Webhook (session.completed) - firebase_uid: {firebase_uid}, credits: {credits_to_add}, item: {item_name}")
+        print(f"Webhook (session.completed) - uid: {mask_uid(firebase_uid)}, item: {item_name}")
 
         if firebase_uid:
             user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
@@ -680,9 +709,9 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 
                     user.last_session_id = session_id
                     db.commit()
-                    print(f"SUCCESS: User {firebase_uid} updated - Credits: {user.credits}, Addon: {user.addon_credits}, Plan: {user.plan}")
+                    print(f"SUCCESS: User {mask_uid(firebase_uid)} updated - Plan: {user.plan}")
             else:
-                print(f"ERROR: User {firebase_uid} not found in DB")
+                print(f"ERROR: User {mask_uid(firebase_uid)} not found in DB")
         else:
             print(f"ERROR: No client_reference_id in session")
 
@@ -717,9 +746,9 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                     if credits_to_add > 0:
                         user.credits = credits_to_add
                         db.commit()
-                        print(f"SUCCESS: Reset credits to {credits_to_add} for user {firebase_uid} (plan={user.plan}, monthly renewal)")
+                        print(f"SUCCESS: Reset credits for user {mask_uid(firebase_uid)} (plan={user.plan}, monthly renewal)")
                 else:
-                    print(f"ERROR: User {firebase_uid} not found for subscription {sub_id}")
+                    print(f"ERROR: User {mask_uid(firebase_uid)} not found for subscription")
             else:
                 print(f"ERROR: No firebase_uid in subscription metadata for {sub_id}")
         except Exception as e:
@@ -769,7 +798,7 @@ async def change_plan(request: Request, user: User = Depends(get_current_user), 
         user.credits = config["credits"]
         db.commit()
 
-        print(f"change-plan: user={user.firebase_uid}, plan={new_plan}, credits={config['credits']}")
+        print(f"change-plan: user={mask_uid(user.firebase_uid)}, plan={new_plan}")
         return {"status": "success", "plan": new_plan, "credits": config["credits"]}
     except Exception as e:
         print(f"change-plan error: {e}")

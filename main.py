@@ -181,6 +181,23 @@ _admin_attempts: dict = {}
 _ADMIN_RATE_LIMIT_MAX = 5
 _ADMIN_RATE_LIMIT_WINDOW = 900  # 15分
 
+# AI/課金系エンドポイントのユーザーIDベースレート制限
+_rate_limit_store: dict = {}
+_RATE_LIMIT_WINDOW = 60  # 1分
+_RATE_LIMIT_AI_MAX = 5        # AI系（blend/instruction/sketch-to-real）: 1分5回
+_RATE_LIMIT_PAYMENT_MAX = 10  # 課金系（verify-payment/checkout）: 1分10回
+
+def _check_rate_limit(key: str, max_requests: int) -> bool:
+    """True=許可、False=レート制限中。リクエスト成功時にカウントを記録する"""
+    now = time.time()
+    timestamps = [t for t in _rate_limit_store.get(key, []) if now - t < _RATE_LIMIT_WINDOW]
+    if len(timestamps) >= max_requests:
+        _rate_limit_store[key] = timestamps
+        return False
+    timestamps.append(now)
+    _rate_limit_store[key] = timestamps
+    return True
+
 def _check_admin_rate_limit(ip: str) -> bool:
     """True=許可、False=レート制限中"""
     now = time.time()
@@ -340,6 +357,8 @@ async def sketch_to_real(
         return JSONResponse(status_code=500, content={"error": "OPENAI_API_KEYがバックエンドに設定されていません"})
     if not user:
         return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
+    if not _check_rate_limit(f"ai:{user.firebase_uid}", _RATE_LIMIT_AI_MAX):
+        return JSONResponse(status_code=429, content={"error": "リクエストが多すぎます。しばらく経ってから再度お試しください。"})
     total = user.credits + (user.addon_credits or 0)
     if total <= 0:
         return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
@@ -394,6 +413,8 @@ async def edit_instruction(
         return JSONResponse(status_code=500, content={"error": "OPENAI_API_KEYがバックエンドに設定されていません"})
     if not user:
         return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
+    if not _check_rate_limit(f"ai:{user.firebase_uid}", _RATE_LIMIT_AI_MAX):
+        return JSONResponse(status_code=429, content={"error": "リクエストが多すぎます。しばらく経ってから再度お試しください。"})
     total = user.credits + (user.addon_credits or 0)
     if total <= 0:
         return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
@@ -455,6 +476,8 @@ async def blend_endpoint(
         return JSONResponse(status_code=500, content={"error": "OPENAI_API_KEYがバックエンドに設定されていません"})
     if not user:
         return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
+    if not _check_rate_limit(f"ai:{user.firebase_uid}", _RATE_LIMIT_AI_MAX):
+        return JSONResponse(status_code=429, content={"error": "リクエストが多すぎます。しばらく経ってから再度お試しください。"})
     total = user.credits + (user.addon_credits or 0)
     if total <= 0:
         return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
@@ -535,6 +558,8 @@ async def verify_payment(request: Request, user: User = Depends(get_current_user
     """Stripe session_idで支払いを確認し、DBを直接更新する（webhook遅延の補完）"""
     if not user:
         return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+    if not _check_rate_limit(f"payment:{user.firebase_uid}", _RATE_LIMIT_PAYMENT_MAX):
+        return JSONResponse(status_code=429, content={"error": "リクエストが多すぎます。しばらく経ってから再度お試しください。"})
 
     body = await request.json()
     session_id = body.get("session_id")
@@ -592,6 +617,8 @@ class CheckoutRequest(BaseModel):
 async def create_checkout_session(request: CheckoutRequest, user: User = Depends(get_current_user)):
     if not user:
         return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
+    if not _check_rate_limit(f"payment:{user.firebase_uid}", _RATE_LIMIT_PAYMENT_MAX):
+        return JSONResponse(status_code=429, content={"error": "リクエストが多すぎます。しばらく経ってから再度お試しください。"})
     # サブスクリプションプランの設定
     sub_configs = {
         "lite": {

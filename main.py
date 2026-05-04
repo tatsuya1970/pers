@@ -363,6 +363,14 @@ async def agree_terms(db: Session = Depends(get_db), authorization: str = Header
     return {"status": "success"}
 
 
+@app.get("/api/pic-list")
+async def pic_list():
+    pic_dir = os.path.join(os.path.dirname(__file__), "static", "pic")
+    exts = {".png", ".jpg", ".jpeg", ".webp"}
+    files = sorted([f for f in os.listdir(pic_dir) if os.path.splitext(f)[1].lower() in exts]) if os.path.isdir(pic_dir) else []
+    return {"images": [f"/static/pic/{f}" for f in files]}
+
+
 @app.get("/api/gallery")
 async def get_gallery(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not user:

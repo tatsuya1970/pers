@@ -144,22 +144,30 @@
                 <!-- 未ログイン時の案内オーバーレイ -->
                 <div id="login-guide-overlay" style="
                     position:absolute; inset:0; display:flex; flex-direction:column;
-                    align-items:center; justify-content:center; gap:16px;
-                    background:rgba(243,244,246,0.92); z-index:10;
+                    align-items:center; justify-content:center; gap:20px;
+                    background:rgba(247,245,242,0.96); z-index:10; padding:32px 24px;
                 ">
-                    <div style="font-size:36px;">🏗️</div>
-                    <div style="font-weight:700; font-size:16px; color:#111827;">PersImageへようこそ</div>
-                    <div style="font-size:13px; color:#6b7280; text-align:center; line-height:1.8;">
-                        土地と建物の写真・画像から、AIが簡易パースをその場で素早く生成します。<br>
-                        デザイナーへのパース作成依頼前に、社内協議やステークホルダーとの認識合わせにご活用いただけます。<br>
-                        まず右上の「ログイン」からGoogleアカウントでサインインしてください。
+                    <div style="text-align:center;">
+                        <div style="font-weight:700; font-size:18px; color:#111827; margin-bottom:8px;">PersImageへようこそ</div>
+                        <div style="font-size:13px; color:#6b7280; line-height:1.8;">
+                            土地と建物の写真・画像から、AIが簡易パースをその場で素早く生成します。<br>
+                            まず右上の「ログイン」からGoogleアカウントでサインインしてください。
+                        </div>
+                        <div style="font-size:12px; color:#9ca3af; display:flex; gap:16px; justify-content:center; margin-top:10px;">
+                            <span>① 背景写真を読み込む</span>
+                            <span>→</span>
+                            <span>② 建物画像を追加</span>
+                            <span>→</span>
+                            <span>③ 合成ボタンを押す</span>
+                        </div>
                     </div>
-                    <div style="font-size:12px; color:#9ca3af; display:flex; gap:24px; margin-top:4px;">
-                        <span>① 背景写真を読み込む</span>
-                        <span>→</span>
-                        <span>② 建物画像を追加</span>
-                        <span>→</span>
-                        <span>③ 合成ボタンを押す</span>
+                    <!-- スライドショー -->
+                    <div id="slideshow-container" style="
+                        position:relative; width:100%; max-width:640px; aspect-ratio:16/9;
+                        border-radius:10px; overflow:hidden; background:#e8e4df;
+                        box-shadow:0 4px 20px rgba(0,0,0,0.10);
+                    ">
+                        <div id="slideshow-inner" style="position:relative; width:100%; height:100%;"></div>
                     </div>
                 </div>
 
@@ -307,5 +315,49 @@
         document.getElementById('google-login-btn').onclick = () => signInWithPopup(auth, provider);
     </script>
     <script type="module" src="/static/app.js?v=4"></script>
+    <script>
+        (async () => {
+            const res = await fetch('/api/pic-list');
+            const data = await res.json();
+            const images = data.images || [];
+            if (!images.length) return;
+
+            const inner = document.getElementById('slideshow-inner');
+            if (!inner) return;
+
+            // シャッフル
+            const shuffle = arr => arr.slice().sort(() => Math.random() - 0.5);
+            let queue = shuffle(images);
+            let current = 0;
+
+            // img要素を2枚用意してクロスフェード
+            [0, 1].forEach(i => {
+                const img = document.createElement('img');
+                img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:opacity 0.8s ease;opacity:0;';
+                img.dataset.slot = i;
+                inner.appendChild(img);
+            });
+
+            const slots = inner.querySelectorAll('img');
+            let activeSlot = 0;
+
+            const showNext = () => {
+                const nextSlot = 1 - activeSlot;
+                slots[nextSlot].src = queue[current];
+                slots[nextSlot].style.opacity = '1';
+                slots[activeSlot].style.opacity = '0';
+                activeSlot = nextSlot;
+                current = (current + 1) % queue.length;
+                if (current === 0) queue = shuffle(images);
+            };
+
+            // 最初の1枚を即表示
+            slots[0].src = queue[current];
+            slots[0].style.opacity = '1';
+            current = (current + 1) % queue.length;
+
+            setInterval(showNext, 5000);
+        })();
+    </script>
 </body>
 </html>

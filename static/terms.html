@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>利用規約 - PersImage</title>
+    <link rel="icon" type="image/png" href="/static/logo.png">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg-app: #f7f5f2;
+            --bg-header: #ffffff;
+            --text-primary: #1a1a1a;
+            --text-secondary: #6b6560;
+            --border: #e8e4df;
+            --accent-blue: #3d5a80;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-app);
+            color: var(--text-primary);
+            line-height: 1.8;
+        }
+        header {
+            height: 52px;
+            background: var(--bg-header);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+            gap: 8px;
+        }
+        .logo-icon-box {
+            width: 28px; height: 28px;
+            background: var(--accent-blue);
+            border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 16px; font-weight: 700;
+        }
+        .header-title {
+            font-size: 15px; font-weight: 700;
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+        .container {
+            max-width: 760px;
+            margin: 48px auto;
+            padding: 0 24px 80px;
+        }
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .updated {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 40px;
+        }
+        h2 {
+            font-size: 16px;
+            font-weight: 700;
+            margin: 36px 0 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        p {
+            font-size: 14px;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+        }
+        ul {
+            font-size: 14px;
+            padding-left: 20px;
+            margin-bottom: 12px;
+        }
+        li {
+            margin-bottom: 6px;
+        }
+        .highlight-box {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo-icon-box">+</div>
+        <a href="/" class="header-title">PersImage</a>
+    </header>
+
+    <div class="container">
+        <h1>利用規約</h1>
+        <p class="updated">最終更新日：2026年5月4日</p>
+
+        <p>本利用規約（以下「本規約」）は、PersImage（以下「本サービス」）の利用条件を定めるものです。本サービスをご利用いただく前に、本規約をよくお読みください。本サービスを利用した時点で、本規約に同意したものとみなします。</p>
+
+        <h2>第1条（サービスの概要）</h2>
+        <p>本サービスは、土地・建物の写真や画像をAIを用いて合成・加工し、簡易パース（完成予想図）を生成するWebアプリケーションです。生成された画像はその場でダウンロードする形式であり、サーバー上への永続的な保存は行いません。</p>
+
+        <h2>第2条（アカウント登録）</h2>
+        <p>本サービスの利用にはGoogleアカウントによる認証が必要です。利用者は以下の事項に同意するものとします。</p>
+        <ul>
+            <li>正確な情報でアカウントを登録すること</li>
+            <li>アカウントの認証情報を第三者と共有しないこと</li>
+            <li>アカウントの不正利用が判明した場合は直ちに運営に通知すること</li>
+        </ul>
+
+        <h2>第3条（料金プランとチケット）</h2>
+        <p>本サービスは以下の料金プランを提供します。</p>
+        <div class="highlight-box">
+            <ul style="list-style:none; padding:0;">
+                <li><strong>Free：</strong>$0/月　月間10チケット</li>
+                <li><strong>Lite：</strong>$5/月　月間30チケット</li>
+                <li><strong>Plus：</strong>$10/月　月間70チケット</li>
+                <li><strong>Max：</strong>$20/月　月間200チケット</li>
+            </ul>
+        </div>
+        <p>チケットはAI合成・テキスト指示の実行1回につき1枚消費されます。チケットは毎月の更新時にリセットされ、翌月への繰り越しはできません。</p>
+
+        <h2>第4条（支払い）</h2>
+        <p>有料プランの料金はStripeを通じてクレジットカードで決済されます。</p>
+        <ul>
+            <li>初回決済はプラン加入時に即時課金されます</li>
+            <li>以降は毎月同日に自動更新されます</li>
+            <li>プラン間の変更（アップグレード・ダウングレード）による差額は、次回請求日に日割り精算されます</li>
+        </ul>
+
+        <h2>第5条（プラン変更・解約）</h2>
+        <p>プランの変更および解約はアプリ内の「プラン管理」から行えます。</p>
+        <ul>
+            <li>解約（無料プランへの変更）を行った場合、現在の契約期間が終了するまでサービスを継続して利用できます</li>
+            <li>契約期間終了後、自動更新は停止されます</li>
+            <li>無料プランへのダウングレード時、チケット残枚数が無料プランの上限（10枚）を超えている場合、10枚にリセットされます</li>
+        </ul>
+
+        <h2>第6条（返金ポリシー）</h2>
+        <p>本サービスは原則として返金を行いません。</p>
+        <ul>
+            <li>当月分の料金はすでに確定しており、解約・ダウングレードによる当月分の返金は行われません</li>
+            <li>システム障害など運営側の事由によりサービスが利用できなかった場合は、個別に対応を検討します</li>
+            <li>返金に関するお問い合わせは、本ページ末尾の問い合わせ窓口までご連絡ください</li>
+        </ul>
+
+        <h2>第7条（禁止事項）</h2>
+        <p>利用者は以下の行為を行ってはなりません。</p>
+        <ul>
+            <li>複数アカウントを作成して無料チケットを不正に取得すること</li>
+            <li>本サービスを通じて違法・有害なコンテンツを生成・拡散すること</li>
+            <li>本サービスのシステムに不正アクセスまたは過度な負荷をかけること</li>
+            <li>第三者の著作権・肖像権・プライバシーを侵害するコンテンツを入力すること</li>
+            <li>本サービスを商業目的で無断転用・再販すること</li>
+        </ul>
+
+        <h2>第8条（生成コンテンツの権利）</h2>
+        <p>利用者が本サービスを通じて生成した画像の著作権は利用者に帰属します。ただし、入力した画像・素材について第三者の権利を侵害していないことは利用者自身が確認・保証するものとします。</p>
+        <p>運営はサービス改善のために生成データを匿名化した形で利用する場合があります。</p>
+
+        <h2>第9条（免責事項）</h2>
+        <p>本サービスはAIを用いた生成ツールであり、生成結果の正確性・品質を保証するものではありません。</p>
+        <ul>
+            <li>生成画像は参考用途（社内協議・ステークホルダーとの認識合わせ等）を想定しており、建築確認申請等の公的用途への使用には適しません</li>
+            <li>システム障害・メンテナンス等によるサービス停止について、運営は損害賠償責任を負いません</li>
+            <li>利用者が本サービスの利用により第三者に損害を与えた場合、利用者自身が責任を負うものとします</li>
+        </ul>
+
+        <h2>第10条（個人情報）</h2>
+        <p>本サービスが取得する情報はGoogleアカウントのメールアドレス・表示名および利用履歴（チケット消費数等）に限られます。これらの情報はサービス提供・改善の目的のみに使用し、第三者への提供は行いません。</p>
+
+        <h2>第11条（規約の変更）</h2>
+        <p>運営は必要に応じて本規約を変更することがあります。変更後の規約はサービス上に掲示した時点から効力を持ちます。変更後も本サービスを継続して利用した場合、変更後の規約に同意したものとみなします。</p>
+
+        <h2>第12条（準拠法・管轄）</h2>
+        <p>本規約は日本法に準拠し、本サービスに関する紛争については日本の裁判所を専属的合意管轄とします。</p>
+
+        <h2>お問い合わせ</h2>
+        <p>本規約に関するお問い合わせは、<a href="https://forms.gle/PTqkNCde4MnWh3pz8" target="_blank" style="color: var(--accent-blue);">こちらのフォーム</a>よりご連絡ください。</p>
+    </div>
+</body>
+</html>

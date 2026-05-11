@@ -237,6 +237,19 @@ class ImageProcessor:
         """
         import cv2
 
+        # ── 背景を最大 2048px に縮小してメモリを節約（結果は後で元サイズに戻す） ──
+        orig_bg_w, orig_bg_h = background.size
+        max_process = 2048
+        scale = min(1.0, max_process / max(orig_bg_w, orig_bg_h))
+        if scale < 1.0:
+            proc_w = max(1, int(orig_bg_w * scale))
+            proc_h = max(1, int(orig_bg_h * scale))
+            background = background.resize((proc_w, proc_h), Image.Resampling.LANCZOS)
+            center_x = int(center_x * scale)
+            center_y = int(center_y * scale)
+            width = max(1, int(width * scale))
+            height = max(1, int(height * scale))
+
         bg_rgb = np.array(background.convert("RGB"))
         bg_h, bg_w = bg_rgb.shape[:2]
 
@@ -284,6 +297,7 @@ class ImageProcessor:
             rough = background.convert("RGBA").copy()
             bld_paste = Image.fromarray(bld_arr).convert("RGBA")
             rough.paste(bld_paste, (cx - bw // 2, cy - bh // 2), bld_paste)
+            del bg_rgb, bld_arr, bld_rgb, alpha, mask
         else:
             # ── ポアソンブレンディング（境界チェック） ──
             margin = 5
@@ -302,6 +316,7 @@ class ImageProcessor:
                         cv2.NORMAL_CLONE,
                     )
                     rough = Image.fromarray(rough_rgb).convert("RGBA")
+                    del rough_rgb
                 except Exception:
                     rough = None
             else:
@@ -312,6 +327,8 @@ class ImageProcessor:
                 rough = background.convert("RGBA").copy()
                 bld_paste = Image.fromarray(bld_arr).convert("RGBA")
                 rough.paste(bld_paste, (cx - bw // 2, cy - bh // 2), bld_paste)
+
+            del bg_rgb, bld_arr, bld_rgb, alpha, mask
 
         # ── OpenAI でリアルに仕上げ ──
         if api_token:
@@ -350,11 +367,13 @@ class ImageProcessor:
             )
 
             img_data = base64.b64decode(response.data[0].b64_json)
+            del response
             result = Image.open(io.BytesIO(img_data)).convert("RGBA")
+            del img_data
 
-            # 元の背景サイズに戻す
-            if result.size != (bg_w, bg_h):
-                result = result.resize((bg_w, bg_h), Image.Resampling.LANCZOS)
+            # 元の背景サイズに戻す（縮小していた場合）
+            if result.size != (orig_bg_w, orig_bg_h):
+                result = result.resize((orig_bg_w, orig_bg_h), Image.Resampling.LANCZOS)
             return result
 
         return rough

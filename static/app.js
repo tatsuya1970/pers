@@ -420,6 +420,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (modal) modal.classList.remove('hidden');
                     return;
                 }
+                if (res.status === 502 || res.status === 503) {
+                    alert('サーバーエラーが発生しました（502）。\n\nチケットが消費されている可能性があります。\nページを再読み込みしてチケット数をご確認ください。\n消費されていた場合はお問い合わせください。');
+                    return;
+                }
                 const data = await res.json();
                 if (data.error) throw new Error(data.error);
 

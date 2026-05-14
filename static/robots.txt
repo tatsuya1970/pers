@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /static/uploads/
+
+Sitemap: https://persimage.com/sitemap.xml

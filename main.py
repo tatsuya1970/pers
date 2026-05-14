@@ -1,6 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, Form, Header, Depends, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from database import get_db, User, GeneratedImage
@@ -295,6 +295,14 @@ def send_error_email_task(base_error: str, traceback_str: str, user_id: str = No
 
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/robots.txt")
+async def robots_txt():
+    return FileResponse("static/robots.txt", media_type="text/plain")
+
+@app.get("/sitemap.xml")
+async def sitemap_xml():
+    return FileResponse("static/sitemap.xml", media_type="application/xml")
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():

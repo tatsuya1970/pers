@@ -43,7 +43,7 @@ if not firebase_admin._apps:
 
 from logic.image_processor import ImageProcessor
 
-app = FastAPI(title="Pars Image SaaS - 建物パース合成")
+app = FastAPI(title="Pers Image SaaS - 建物パース合成")
 
 # ── メンテナンスモード（ファイルで永続化：再起動後も維持） ──
 MAINTENANCE_FLAG_FILE = "/tmp/maintenance.flag"
@@ -63,7 +63,7 @@ MAINTENANCE_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>メンテナンス中 - Pars Image</title>
+  <title>メンテナンス中 - Pers Image</title>
   <style>
     body { font-family: 'Helvetica Neue', sans-serif; background: #f3f4f6;
            display: flex; align-items: center; justify-content: center;
@@ -267,7 +267,7 @@ def send_error_email_task(base_error: str, traceback_str: str, user_id: str = No
     uid_str = user_id or "不明"
 
     body = (
-        f"Pars Imageでシステムエラーが発生しました。\n\n"
+        f"Pers Imageでシステムエラーが発生しました。\n\n"
         f"【日時】\n{now_str}\n\n"
         f"【ユーザーID】\n{uid_str}\n\n"
         f"【エラー内容】\n{base_error}\n\n"
@@ -279,7 +279,7 @@ def send_error_email_task(base_error: str, traceback_str: str, user_id: str = No
         return
 
     msg = MIMEText(body)
-    msg['Subject'] = '【エラー通知】Pars Image システムエラー'
+    msg['Subject'] = '【エラー通知】Pers Image システムエラー'
     msg['From'] = smtp_user
     msg['To'] = 'tatsuya.takemura@gmail.com'
 

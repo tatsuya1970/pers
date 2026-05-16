@@ -245,7 +245,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-app.js";
-        import { getAuth, signInWithRedirect, getRedirectResult, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-auth.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.10.0/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDUX08T22WyzTNZ9HLLxTdUnNMgW4TCZq4",
@@ -362,10 +362,14 @@
                 if (loginGuide) loginGuide.style.display = 'flex';
             }
         });
-        document.getElementById('google-login-btn').onclick = () => signInWithRedirect(auth, provider);
-
-        // リダイレクト後の認証結果を処理
-        getRedirectResult(auth).catch(() => {});
+        document.getElementById('google-login-btn').onclick = () => {
+            signInWithPopup(auth, provider).catch(err => {
+                console.error("Login Error:", err);
+                if (err.code !== 'auth/popup-closed-by-user') {
+                    alert('ログインに失敗しました。しばらく経ってから再度お試しください。');
+                }
+            });
+        };
     </script>
     <script type="module" src="/static/app.js?v=4"></script>
     <script>

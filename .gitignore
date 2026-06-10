@@ -7,7 +7,9 @@ database.sqlite
 static/uploads/
 generated/
 .venv/
+venv/
 node_modules/
+.claude/
 *.db
 *.sqlite3
 *.tar.gz

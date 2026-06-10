@@ -23,7 +23,8 @@ import firebase_admin
 from firebase_admin import auth as firebase_auth, credentials as fb_credentials
 
 # .envファイルを読み込み（サーバー側にAPIキーを固定）
-load_dotenv()
+# override=True: シェルに古い環境変数が残っていても .env の値を優先する（本番Renderは.envが無いため影響なし）
+load_dotenv(override=True)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
@@ -40,6 +41,49 @@ if not firebase_admin._apps:
         raise RuntimeError("FATAL: FIREBASE_SERVICE_ACCOUNT_JSON is not set. Set this environment variable before starting the server.")
     _cred = fb_credentials.Certificate(json.loads(_sa_json))
     firebase_admin.initialize_app(_cred)
+
+# ── 多言語化対応（日英） ──
+def get_lang(accept_language: str = Header(None)) -> str:
+    if accept_language and "en" in accept_language.lower():
+        return "en"
+    return "ja"
+
+MESSAGES = {
+    "ja": {
+        "server_error": "大変申し訳ございません。ただいまご利用できない状況です。しばらく経ってからアクセス願います。",
+        "login_required": "ログインが必要です。",
+        "image_not_found": "画像が見つかりません。",
+        "too_many_requests": "リクエストが多すぎます。しばらく経ってから再度お試しください。",
+        "insufficient_tickets": "チケット残高が不足しています。",
+        "file_too_large": "ファイルサイズが大きすぎます（上限10MB）",
+        "text_limit": "テキスト指示は500文字以内で入力してください。",
+        "payment_failed": "支払い確認に失敗しました。しばらく経ってから再度お試しください。",
+        "no_permission_session": "このセッションへのアクセス権限がありません。",
+        "select_item": "プランまたはアドオンを選択してください",
+        "invalid_item": "無効なアイテムが選択されました",
+        "checkout_failed": "決済セッションの作成に失敗しました。しばらく経ってから再度お試しください。",
+        "invalid_plan": "無効なプランです",
+        "no_active_subscription": "有効なサブスクリプションがありません",
+        "downgrade_success": "無料プランに変更されました。現在の期間終了後に自動更新が停止します。",
+    },
+    "en": {
+        "server_error": "We are very sorry, but the service is currently unavailable. Please try again later.",
+        "login_required": "Login required.",
+        "image_not_found": "Image not found.",
+        "too_many_requests": "Too many requests. Please try again later.",
+        "insufficient_tickets": "Insufficient ticket balance.",
+        "file_too_large": "File size is too large (maximum 10MB).",
+        "text_limit": "Text instruction must be 500 characters or less.",
+        "payment_failed": "Payment verification failed. Please try again later.",
+        "no_permission_session": "You do not have permission to access this session.",
+        "select_item": "Please select a plan or an addon.",
+        "invalid_item": "Invalid item selected.",
+        "checkout_failed": "Failed to create checkout session. Please try again later.",
+        "invalid_plan": "Invalid plan.",
+        "no_active_subscription": "No active subscription found.",
+        "downgrade_success": "Downgraded to Free plan. Automatic renewal will stop at the end of the current billing period.",
+    }
+}
 
 from logic.image_processor import ImageProcessor
 
@@ -63,7 +107,7 @@ MAINTENANCE_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>メンテナンス中 - Pers Image</title>
+  <title>メンテナンス中 / Under Maintenance - Pers Image</title>
   <style>
     body { font-family: 'Helvetica Neue', sans-serif; background: #f3f4f6;
            display: flex; align-items: center; justify-content: center;
@@ -76,8 +120,10 @@ MAINTENANCE_HTML = """<!DOCTYPE html>
 </head>
 <body>
   <div class="box">
-    <h1>🔧 メンテナンス中</h1>
+    <h1>🔧 メンテナンス中 / Under Maintenance</h1>
     <p>大変申し訳ございません。<br>ただいまメンテナンス中です。<br>しばらく時間をおいてから、再度アクセスしてください。</p>
+    <hr style="margin: 20px 0; border: 0; border-top: 1px solid #e5e7eb;">
+    <p>We apologize for the inconvenience.<br>We are currently undergoing maintenance.<br>Please try again after a while.</p>
   </div>
 </body>
 </html>"""
@@ -151,7 +197,9 @@ async def admin_fix_user_plan(request: Request, db: Session = Depends(get_db)):
 async def global_exception_handler(request: Request, exc: Exception):
     # APIエンドポイントはJSONでエラーを返す
     if request.url.path.startswith("/api/"):
-        return JSONResponse(status_code=500, content={"error": "大変申し訳ございません。ただいまご利用できない状況です。しばらく経ってからアクセス願います。"})
+        accept_lang = request.headers.get("accept-language", "ja")
+        lang = "en" if "en" in accept_lang.lower() else "ja"
+        return JSONResponse(status_code=500, content={"error": MESSAGES[lang]["server_error"]})
     # 画面ページはメンテナンス画面を表示
     return HTMLResponse(content=MAINTENANCE_HTML, status_code=503)
 
@@ -387,13 +435,13 @@ async def get_gallery(user: User = Depends(get_current_user), db: Session = Depe
     return {"status": "success", "images": [{"id": i.id, "url": i.file_path, "created_at": i.created_at.isoformat()} for i in images]}
 
 @app.delete("/api/gallery/{image_id}")
-async def delete_gallery_image(image_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def delete_gallery_image(image_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db), lang: str = Depends(get_lang)):
     if not user:
         return JSONResponse(status_code=401, content={"error": "Unauthorized"})
     
     img = db.query(GeneratedImage).filter(GeneratedImage.id == image_id, GeneratedImage.user_id == user.id).first()
     if not img:
-        return JSONResponse(status_code=404, content={"error": "画像が見つかりません。"})
+        return JSONResponse(status_code=404, content={"error": MESSAGES[lang]["image_not_found"]})
         
     # 必要に応じてローカルファイルも削除
     if img.file_path:
@@ -409,9 +457,9 @@ async def delete_gallery_image(image_id: int, user: User = Depends(get_current_u
     return {"status": "success", "message": "Deleted successfully."}
 
 @app.post("/api/upload")
-async def upload_bg(file: UploadFile = File(...), user: User = Depends(get_current_user)):
+async def upload_bg(file: UploadFile = File(...), user: User = Depends(get_current_user), lang: str = Depends(get_lang)):
     if not user:
-        return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
+        return JSONResponse(status_code=401, content={"error": MESSAGES[lang]["login_required"]})
     return {"filename": file.filename, "status": "success", "message": "Background received."}
 
 @app.post("/api/sketch-to-real")
@@ -419,18 +467,19 @@ async def sketch_to_real(
     file: UploadFile = File(...),
     quality: str = Form("medium"),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    lang: str = Depends(get_lang)
 ):
     """手書きイラストをフォトリアルに変換（OpenAI連携）"""
     if not OPENAI_API_KEY or OPENAI_API_KEY == "ここにOpenAIのAPIキーを貼り付けてください":
         return JSONResponse(status_code=500, content={"error": "OPENAI_API_KEYがバックエンドに設定されていません"})
     if not user:
-        return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
+        return JSONResponse(status_code=401, content={"error": MESSAGES[lang]["login_required"]})
     if not _check_rate_limit(f"ai:{user.firebase_uid}", _RATE_LIMIT_AI_MAX):
-        return JSONResponse(status_code=429, content={"error": "リクエストが多すぎます。しばらく経ってから再度お試しください。"})
+        return JSONResponse(status_code=429, content={"error": MESSAGES[lang]["too_many_requests"]})
     total = user.credits + (user.addon_credits or 0)
     if total <= 0:
-        return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
+        return JSONResponse(status_code=402, content={"error": MESSAGES[lang]["insufficient_tickets"]})
 
     if quality not in ("high", "medium", "low"):
         quality = "medium"
@@ -438,7 +487,7 @@ async def sketch_to_real(
     try:
         contents = await file.read()
         if len(contents) > 10 * 1024 * 1024:
-            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限10MB）"})
+            return JSONResponse(status_code=413, content={"error": MESSAGES[lang]["file_too_large"]})
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
 
         # クレジット先払い（AI失敗時は返金）
@@ -467,7 +516,7 @@ async def sketch_to_real(
         err_msg = traceback.format_exc()
         uid = user.firebase_uid if user else None
         threading.Thread(target=send_error_email_task, args=(base_err, err_msg, uid)).start()
-        return JSONResponse(status_code=500, content={"error": "大変申し訳ございません。ただいまご利用できない状況です。しばらく経ってからアクセス願います。"})
+        return JSONResponse(status_code=500, content={"error": MESSAGES[lang]["server_error"]})
 
 @app.post("/api/instruction")
 async def edit_instruction(
@@ -475,21 +524,22 @@ async def edit_instruction(
     instruction: str = Form(...),
     quality: str = Form("medium"),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    lang: str = Depends(get_lang)
 ):
     """テキスト指示による画像編集（OpenAI連携）"""
     if not OPENAI_API_KEY or OPENAI_API_KEY == "ここにOpenAIのAPIキーを貼り付けてください":
         return JSONResponse(status_code=500, content={"error": "OPENAI_API_KEYがバックエンドに設定されていません"})
     if not user:
-        return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
+        return JSONResponse(status_code=401, content={"error": MESSAGES[lang]["login_required"]})
     if not _check_rate_limit(f"ai:{user.firebase_uid}", _RATE_LIMIT_AI_MAX):
-        return JSONResponse(status_code=429, content={"error": "リクエストが多すぎます。しばらく経ってから再度お試しください。"})
+        return JSONResponse(status_code=429, content={"error": MESSAGES[lang]["too_many_requests"]})
     total = user.credits + (user.addon_credits or 0)
     if total <= 0:
-        return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
+        return JSONResponse(status_code=402, content={"error": MESSAGES[lang]["insufficient_tickets"]})
 
     if len(instruction) > 500:
-        return JSONResponse(status_code=400, content={"error": "テキスト指示は500文字以内で入力してください。"})
+        return JSONResponse(status_code=400, content={"error": MESSAGES[lang]["text_limit"]})
 
     if quality not in ("high", "medium", "low"):
         quality = "medium"
@@ -497,7 +547,7 @@ async def edit_instruction(
     try:
         contents = await file.read()
         if len(contents) > 10 * 1024 * 1024:
-            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限10MB）"})
+            return JSONResponse(status_code=413, content={"error": MESSAGES[lang]["file_too_large"]})
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
 
         deducted_from = "credits" if user.credits > 0 else "addon"
@@ -524,7 +574,7 @@ async def edit_instruction(
         err_msg = traceback.format_exc()
         uid = user.firebase_uid if user else None
         threading.Thread(target=send_error_email_task, args=(base_err, err_msg, uid)).start()
-        return JSONResponse(status_code=500, content={"error": "大変申し訳ございません。ただいまご利用できない状況です。しばらく経ってからアクセス願います。"})
+        return JSONResponse(status_code=500, content={"error": MESSAGES[lang]["server_error"]})
 
 @app.post("/api/blend")
 async def blend_endpoint(
@@ -538,18 +588,19 @@ async def blend_endpoint(
     is_sketch: bool = Form(False),
     quality: str = Form("medium"),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    lang: str = Depends(get_lang)
 ):
     """建物を背景に馴染ませる（ポアソンブレンディング＋OpenAI仕上げ）"""
     if not OPENAI_API_KEY or OPENAI_API_KEY == "ここにOpenAIのAPIキーを貼り付けてください":
         return JSONResponse(status_code=500, content={"error": "OPENAI_API_KEYがバックエンドに設定されていません"})
     if not user:
-        return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
+        return JSONResponse(status_code=401, content={"error": MESSAGES[lang]["login_required"]})
     if not _check_rate_limit(f"ai:{user.firebase_uid}", _RATE_LIMIT_AI_MAX):
-        return JSONResponse(status_code=429, content={"error": "リクエストが多すぎます。しばらく経ってから再度お試しください。"})
+        return JSONResponse(status_code=429, content={"error": MESSAGES[lang]["too_many_requests"]})
     total = user.credits + (user.addon_credits or 0)
     if total <= 0:
-        return JSONResponse(status_code=402, content={"error": "チケット残高が不足しています。"})
+        return JSONResponse(status_code=402, content={"error": MESSAGES[lang]["insufficient_tickets"]})
 
     if quality not in ("high", "medium", "low"):
         quality = "medium"
@@ -558,7 +609,7 @@ async def blend_endpoint(
         bg_contents = await bg_file.read()
         bld_contents = await bld_file.read()
         if len(bg_contents) > 10 * 1024 * 1024 or len(bld_contents) > 10 * 1024 * 1024:
-            return JSONResponse(status_code=413, content={"error": "ファイルサイズが大きすぎます（上限10MB）"})
+            return JSONResponse(status_code=413, content={"error": MESSAGES[lang]["file_too_large"]})
         bg_img = Image.open(io.BytesIO(bg_contents)).convert("RGBA")
         bld_img = Image.open(io.BytesIO(bld_contents)).convert("RGBA")
 
@@ -592,16 +643,17 @@ async def blend_endpoint(
         err_msg = traceback.format_exc()
         uid = user.firebase_uid if user else None
         threading.Thread(target=send_error_email_task, args=(base_err, err_msg, uid)).start()
-        return JSONResponse(status_code=500, content={"error": "大変申し訳ございません。ただいまご利用できない状況です。しばらく経ってからアクセス願います。"})
+        return JSONResponse(status_code=500, content={"error": MESSAGES[lang]["server_error"]})
 
 @app.post("/api/match-color")
 async def match_color_endpoint(
     bg_file: UploadFile = File(...),
     bld_file: UploadFile = File(...),
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    lang: str = Depends(get_lang)
 ):
     if not user:
-        return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
+        return JSONResponse(status_code=401, content={"error": MESSAGES[lang]["login_required"]})
     try:
         bg_contents = await bg_file.read()
         bld_contents = await bld_file.read()
@@ -615,7 +667,7 @@ async def match_color_endpoint(
         base_err = str(e)
         err_msg = traceback.format_exc()
         threading.Thread(target=send_error_email_task, args=(base_err, err_msg)).start()
-        return JSONResponse(status_code=500, content={"error": "大変申し訳ございません。ただいまご利用できない状況です。しばらく経ってからアクセス願います。"})
+        return JSONResponse(status_code=500, content={"error": MESSAGES[lang]["server_error"]})
 
 @app.get("/success", response_class=HTMLResponse)
 async def read_success():
@@ -623,12 +675,12 @@ async def read_success():
         return f.read()
 
 @app.post("/api/verify-payment")
-async def verify_payment(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def verify_payment(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db), lang: str = Depends(get_lang)):
     """Stripe session_idで支払いを確認し、DBを直接更新する（webhook遅延の補完）"""
     if not user:
         return JSONResponse(status_code=401, content={"error": "Unauthorized"})
     if not _check_rate_limit(f"payment:{user.firebase_uid}", _RATE_LIMIT_PAYMENT_MAX):
-        return JSONResponse(status_code=429, content={"error": "リクエストが多すぎます。しばらく経ってから再度お試しください。"})
+        return JSONResponse(status_code=429, content={"error": MESSAGES[lang]["too_many_requests"]})
 
     body = await request.json()
     session_id = body.get("session_id")
@@ -639,12 +691,12 @@ async def verify_payment(request: Request, user: User = Depends(get_current_user
         session = stripe.checkout.Session.retrieve(session_id)
     except Exception as e:
         print(f"Stripe error in verify_payment: {e}")
-        return JSONResponse(status_code=400, content={"error": "支払い確認に失敗しました。しばらく経ってから再度お試しください。"})
+        return JSONResponse(status_code=400, content={"error": MESSAGES[lang]["payment_failed"]})
 
     # セッション所有者チェック: このセッションがログインユーザーのものか確認
     session_owner = getattr(session, 'client_reference_id', None)
     if session_owner != user.firebase_uid:
-        return JSONResponse(status_code=403, content={"error": "このセッションへのアクセス権限がありません。"})
+        return JSONResponse(status_code=403, content={"error": MESSAGES[lang]["no_permission_session"]})
 
     # 支払い未完了は無視
     if session.payment_status not in ("paid", "no_payment_required"):
@@ -683,11 +735,11 @@ class CheckoutRequest(BaseModel):
     addon: str = None
 
 @app.post("/api/create-checkout-session")
-async def create_checkout_session(request: CheckoutRequest, user: User = Depends(get_current_user)):
+async def create_checkout_session(request: CheckoutRequest, user: User = Depends(get_current_user), lang: str = Depends(get_lang)):
     if not user:
-        return JSONResponse(status_code=401, content={"error": "ログインが必要です。"})
+        return JSONResponse(status_code=401, content={"error": MESSAGES[lang]["login_required"]})
     if not _check_rate_limit(f"payment:{user.firebase_uid}", _RATE_LIMIT_PAYMENT_MAX):
-        return JSONResponse(status_code=429, content={"error": "リクエストが多すぎます。しばらく経ってから再度お試しください。"})
+        return JSONResponse(status_code=429, content={"error": MESSAGES[lang]["too_many_requests"]})
     # サブスクリプションプランの設定
     sub_configs = {
         "lite": {
@@ -713,10 +765,10 @@ async def create_checkout_session(request: CheckoutRequest, user: User = Depends
         config = addon_configs.get(request.addon)
         mode = 'payment'
     else:
-        return JSONResponse(status_code=400, content={"error": "プランまたはアドオンを選択してください"})
+        return JSONResponse(status_code=400, content={"error": MESSAGES[lang]["select_item"]})
 
     if not config:
-        return JSONResponse(status_code=400, content={"error": "無効なアイテムが選択されました"})
+        return JSONResponse(status_code=400, content={"error": MESSAGES[lang]["invalid_item"]})
 
     try:
         # デバッグログ
@@ -755,7 +807,7 @@ async def create_checkout_session(request: CheckoutRequest, user: User = Depends
         import traceback
         print("!!! STRIPE API ERROR !!!")
         print(traceback.format_exc())
-        return JSONResponse(status_code=400, content={"error": "決済セッションの作成に失敗しました。しばらく経ってから再度お試しください。"})
+        return JSONResponse(status_code=400, content={"error": MESSAGES[lang]["checkout_failed"]})
 
 
 @app.post("/api/stripe-webhook")
@@ -854,7 +906,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     return {"status": "success"}
 
 @app.post("/api/change-plan")
-async def change_plan(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def change_plan(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db), lang: str = Depends(get_lang)):
     """既存サブスクリプションのプラン変更（日割り精算）"""
     if not user:
         return JSONResponse(status_code=401, content={"error": "Unauthorized"})
@@ -870,10 +922,10 @@ async def change_plan(request: Request, user: User = Depends(get_current_user), 
 
     config = plan_configs.get(new_plan)
     if not config:
-        return JSONResponse(status_code=400, content={"error": "無効なプランです"})
+        return JSONResponse(status_code=400, content={"error": MESSAGES[lang]["invalid_plan"]})
 
     if not user.stripe_subscription_id:
-        return JSONResponse(status_code=400, content={"error": "有効なサブスクリプションがありません"})
+        return JSONResponse(status_code=400, content={"error": MESSAGES[lang]["no_active_subscription"]})
 
     try:
         subscription = stripe.Subscription.retrieve(user.stripe_subscription_id)
@@ -902,7 +954,7 @@ async def change_plan(request: Request, user: User = Depends(get_current_user), 
 
 
 @app.post("/api/user/downgrade")
-async def downgrade_user(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def downgrade_user(user: User = Depends(get_current_user), db: Session = Depends(get_db), lang: str = Depends(get_lang)):
     if not user:
         return JSONResponse(status_code=401, content={"error": "Unauthorized"})
     
@@ -922,7 +974,7 @@ async def downgrade_user(user: User = Depends(get_current_user), db: Session = D
             print(f"Stripe cancellation warning: {e}")
 
     db.commit()
-    return {"status": "success", "message": "無料プランに変更されました。現在の期間終了後に自動更新が停止します。"}
+    return {"status": "success", "message": MESSAGES[lang]["downgrade_success"]}
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

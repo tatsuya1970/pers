@@ -1,4 +1,289 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // --- 多言語辞書 ──
+    const I18N_DICT = {
+        ja: {
+            terms_welcome: "Pers Imageへようこそ",
+            terms_intro: `ご利用前に<a href="/static/terms.html" id="terms-link" target="_blank" style="color:var(--accent-blue);">利用規約</a>をご確認ください。<br>「同意して始める」をクリックすることで、利用規約に同意したものとみなします。`,
+            terms_link: "利用規約",
+            terms_agree_btn: "同意して始める",
+            pricing_title: "料金プラン",
+            plan_free_name: "Free",
+            pricing_monthly: "/月",
+            plan_free_desc: "まずは試したい方へ",
+            plan_free_feat: "月間 10 回",
+            current_plan: "現在のプラン",
+            plan_lite_name: "Lite",
+            plan_lite_desc: "気軽に使いたい方へ",
+            plan_lite_feat: "月間 30 回",
+            to_lite_plan: "Liteプランへ",
+            plan_recommended: "おすすめ",
+            plan_plus_name: "Plus",
+            plan_plus_desc: "日々の提案をより高品質に",
+            plan_plus_feat: "月間 70 回",
+            to_plus_plan: "Plusプランへ",
+            plan_max_name: "Max",
+            plan_max_desc: "ヘビーユーザー向け",
+            plan_max_feat: "月間 200 回",
+            to_max_plan: "Maxプランへ",
+            processing: "処理中...",
+            tickets_remaining_prefix: "チケット残り：",
+            tickets_remaining_suffix: " 枚",
+            show_pricing: "プラン管理",
+            logout: "ログアウト",
+            login: "ログイン",
+            sidebar_bg_settings: "背景設定",
+            sidebar_load_bg: "背景写真を読み込む",
+            sidebar_add_elements: "要素の追加",
+            sidebar_photo: "写真",
+            sidebar_sketch: "イラスト",
+            sidebar_blend_btn: "背景に合成（チケット1枚）",
+            sidebar_text_instruction: "テキスト指示",
+            sidebar_placeholder_instruction: "例：空を夕方にする、木を増やす...",
+            sidebar_ai_instruct_btn: "テキスト指示を実行（チケット1枚）",
+            sidebar_export_btn: "画像を保存 (PNG)",
+            footer_feedback: "ご意見・ご質問・バグ報告",
+            footer_terms: "利用規約",
+            footer_tokusho: "特定商取引法に基づく表記",
+            guide_title: "Pers Image - AIで建物パースを簡単合成",
+            guide_desc: "土地・建物の写真や画像をもとに、AIが簡易パースをその場でスピーディに生成します。<br>正式なパース作成前の社内協議や、関係者との認識合わせにお役立てください。<br>まず右上の「ログイン」からGoogleアカウントでサインインしてください。",
+            guide_steps: "<span>① 背景写真を読み込む</span><span>→</span><span>② 建物画像を追加</span><span>→</span><span>③ 合成ボタンを押す</span>",
+            tooltip_undo: "元に戻す",
+            tooltip_clear: "クリア",
+
+            // JS messages
+            msg_load_bg_first: "先に背景をアップロードしてください。",
+            msg_insufficient_tickets: "チケットが不足しています。プランのアップグレードをご検討ください。",
+            msg_server_error_502: "サーバーエラーが発生しました（502）。\n\nチケットが消費されている可能性があります。\nページを再読み込みしてチケット数をご確認ください。\n消費されていた場合はお問い合わせください。",
+            msg_clear_confirm: "キャンバスをクリアしますか？\n現在の作業内容はすべて消去されます。",
+            msg_logout_confirm: "ログアウトしますか？\n現在画面に表示されている画像は、ログアウトすると消去されます。\nよろしいですか？",
+            msg_login_required: "ログインが必要です。",
+            msg_network_error: "通信エラー",
+            msg_plan_changed: "{plan}プランに変更しました。\n\n※ 差額は次回の請求日にまとめて精算されます。",
+            msg_plan_change_failed: "変更に失敗しました。",
+            msg_change_to_free_confirm: "無料プランに変更しますか？\n\n⚠️ チケットが減る可能性があります。無料プランの上限（10枚）を超えている場合、10枚にリセットされます。\n\n※ 現在の契約期間が終了するまで、Stripeによる課金は継続されます。\n期間終了後に自動更新が停止し、無料プランに切り替わります。",
+            msg_change_to_free_accepted: "無料プランへの変更を受け付けました。\n\n現在の契約期間が終了するまでは引き続きご利用いただけます。\n期間終了後に自動更新が停止します。\n\n※ Stripeからの請求は現在の期間終了後に停止します。",
+            
+            // Timer texts
+            timer_blending: "画像を馴染ませています... 通常20〜60秒かかります",
+            timer_instruction: "AIによる指示を実行中... 通常20〜60秒かかります",
+
+            // Toast texts
+            toast_blend_complete: "✓ 合成完了（残り {credits} 回）",
+            toast_instruct_complete: "✓ 完了（残り {credits} 回）",
+            
+            // General text
+            change_to_free_plan_btn: "無料プランに変更"
+        },
+        en: {
+            terms_welcome: "Welcome to Pers Image",
+            terms_intro: `Please review the <a href="/static/terms_en.html" id="terms-link" target="_blank" style="color:var(--accent-blue);">Terms of Service</a> before using the service.<br>By clicking "Agree and Start", you are deemed to have agreed to the terms.`,
+            terms_link: "Terms of Service",
+            terms_agree_btn: "Agree and Start",
+            pricing_title: "Pricing Plans",
+            plan_free_name: "Free",
+            pricing_monthly: "/mo",
+            plan_free_desc: "For those who want to try first",
+            plan_free_feat: "10 tickets (one-time)",
+            current_plan: "Current Plan",
+            plan_lite_name: "Lite",
+            plan_lite_desc: "For casual users",
+            plan_lite_feat: "30 tickets / month",
+            to_lite_plan: "Upgrade to Lite",
+            plan_recommended: "Recommended",
+            plan_plus_name: "Plus",
+            plan_plus_desc: "For higher quality daily proposals",
+            plan_plus_feat: "70 tickets / month",
+            to_plus_plan: "Upgrade to Plus",
+            plan_max_name: "Max",
+            plan_max_desc: "For heavy users",
+            plan_max_feat: "200 tickets / month",
+            to_max_plan: "Upgrade to Max",
+            processing: "Processing...",
+            tickets_remaining_prefix: "Tickets left: ",
+            tickets_remaining_suffix: "",
+            show_pricing: "Manage Plan",
+            logout: "Logout",
+            login: "Login",
+            sidebar_bg_settings: "Background Setting",
+            sidebar_load_bg: "Load Background Photo",
+            sidebar_add_elements: "Add Elements",
+            sidebar_photo: "Photo",
+            sidebar_sketch: "Sketch",
+            sidebar_blend_btn: "Blend into Background (1 ticket)",
+            sidebar_text_instruction: "Text Instructions",
+            sidebar_placeholder_instruction: "e.g., Make the sky evening, add more trees...",
+            sidebar_ai_instruct_btn: "Run Text Instruction (1 ticket)",
+            sidebar_export_btn: "Save Image (PNG)",
+            footer_feedback: "Feedback & Support",
+            footer_terms: "Terms of Service",
+            footer_tokusho: "Act on Specified Commercial Transactions",
+            guide_title: "Pers Image - Easy AI Building Perspective Synthesis",
+            guide_desc: "Based on photos of land and buildings, AI generates simple perspectives on the spot.<br>Useful for internal discussions and aligning with stakeholders before creating formal perspective drawings.<br>Please sign in with your Google account from the \"Login\" button at the top right.",
+            guide_steps: "<span>① Load Background Photo</span><span>→</span><span>② Add Building Image</span><span>→</span><span>③ Press Blend Button</span>",
+            tooltip_undo: "Undo",
+            tooltip_clear: "Clear",
+
+            // JS messages
+            msg_load_bg_first: "Please upload a background photo first.",
+            msg_insufficient_tickets: "Insufficient tickets. Please consider upgrading your plan.",
+            msg_server_error_502: "A server error occurred (502).\n\nTickets might have been consumed.\nPlease reload the page to check your ticket balance.\nIf they were consumed, please contact support.",
+            msg_clear_confirm: "Are you sure you want to clear the canvas?\nAll current work will be lost.",
+            msg_logout_confirm: "Are you sure you want to log out?\nThe image currently displayed on the screen will be cleared upon logout. Continue?",
+            msg_login_required: "Login required.",
+            msg_network_error: "Communication error",
+            msg_plan_changed: "Changed to {plan} plan.\n\n* The price difference will be adjusted on your next billing cycle.",
+            msg_plan_change_failed: "Failed to change plan.",
+            msg_change_to_free_confirm: "Are you sure you want to change to the Free plan?\n\n⚠️ Your tickets may be reduced. If your tickets exceed the Free plan limit (10), they will be reset to 10.\n\n* Your Stripe subscription billing will continue until the end of the current billing cycle. It will automatically stop renewing and downgrade to Free at that point.",
+            msg_change_to_free_accepted: "We have received your request to downgrade to the Free plan.\n\nYou can continue to use the service until the end of the current billing period.\nStripe billing will stop after the current period.",
+            
+            // Timer texts
+            timer_blending: "Blending image... Usually takes 20-60 seconds",
+            timer_instruction: "Running AI instruction... Usually takes 20-60 seconds",
+
+            // Toast texts
+            toast_blend_complete: "✓ Blending complete ({credits} left)",
+            toast_instruct_complete: "✓ Completed ({credits} left)",
+            
+            // General text
+            change_to_free_plan_btn: "Downgrade to Free"
+        }
+    };
+
+    // --- メタタグ（SEO/OGP）用の多言語辞書 ──
+    const META_I18N = {
+        ja: {
+            title: "Pers Image - AIで建物パースを簡単合成",
+            description: "土地・建物の写真からAIが簡易パースをスピーディに生成。社内協議や関係者との認識合わせに最適な建物パース合成ツールです。",
+            keywords: "建物パース,AI合成,建築パース,不動産,簡易パース,写真合成,Pers Image",
+            ogTitle: "Pers Image - AIで建物パースを簡単合成",
+            ogDescription: "土地・建物の写真からAIが簡易パースをスピーディに生成。社内協議や関係者との認識合わせに最適。",
+            ogLocale: "ja_JP",
+            schemaDescription: "土地・建物の写真からAIが簡易パースをスピーディに生成する建物パース合成ツール"
+        },
+        en: {
+            title: "Pers Image - Easy AI Building Perspective Synthesis",
+            description: "AI quickly generates simple building perspectives from photos of land and buildings. The ideal perspective synthesis tool for internal discussions and aligning with stakeholders.",
+            keywords: "building perspective,AI synthesis,architectural rendering,real estate,quick perspective,photo composition,Pers Image",
+            ogTitle: "Pers Image - Easy AI Building Perspective Synthesis",
+            ogDescription: "AI quickly generates simple building perspectives from photos of land and buildings. Ideal for internal discussions and aligning with stakeholders.",
+            ogLocale: "en_US",
+            schemaDescription: "A building perspective synthesis tool that uses AI to quickly generate simple perspectives from photos of land and buildings."
+        }
+    };
+
+    const setMetaContent = (selector, content) => {
+        const el = document.querySelector(selector);
+        if (el) el.setAttribute('content', content);
+    };
+
+    function applyMetaLanguage(lang) {
+        const meta = META_I18N[lang] || META_I18N.ja;
+
+        document.title = meta.title;
+        setMetaContent('meta[name="description"]', meta.description);
+        setMetaContent('meta[name="keywords"]', meta.keywords);
+
+        setMetaContent('meta[property="og:title"]', meta.ogTitle);
+        setMetaContent('meta[property="og:description"]', meta.ogDescription);
+        setMetaContent('meta[property="og:locale"]', meta.ogLocale);
+        setMetaContent('meta[property="og:locale:alternate"]', lang === 'en' ? 'ja_JP' : 'en_US');
+
+        setMetaContent('meta[name="twitter:title"]', meta.ogTitle);
+        setMetaContent('meta[name="twitter:description"]', meta.ogDescription);
+
+        const ldScript = document.getElementById('ld-json');
+        if (ldScript) {
+            try {
+                const data = JSON.parse(ldScript.textContent);
+                data.description = meta.schemaDescription;
+                ldScript.textContent = JSON.stringify(data);
+            } catch (e) {
+                // JSON-LDのパースに失敗しても表示には影響しないため無視
+            }
+        }
+    }
+
+    const getSystemLanguage = () => {
+        const params = new URLSearchParams(window.location.search);
+        const urlLang = params.get('lang');
+        if (urlLang === 'en' || urlLang === 'ja') return urlLang;
+
+        const localLang = localStorage.getItem('pers_lang');
+        if (localLang === 'en' || localLang === 'ja') return localLang;
+
+        const navLang = navigator.language || navigator.userLanguage;
+        if (navLang && navLang.toLowerCase().startsWith('en')) return 'en';
+        return 'ja';
+    };
+
+    let currentLang = getSystemLanguage();
+    document.documentElement.lang = currentLang;
+
+    function applyLanguage(lang) {
+        currentLang = lang;
+        document.documentElement.lang = lang;
+        localStorage.setItem('pers_lang', lang);
+
+        const btnJa = document.getElementById('lang-ja');
+        const btnEn = document.getElementById('lang-en');
+        if (btnJa && btnEn) {
+            if (lang === 'ja') {
+                btnJa.style.fontWeight = 'bold';
+                btnJa.style.color = 'var(--accent-blue)';
+                btnEn.style.fontWeight = 'normal';
+                btnEn.style.color = 'var(--text-secondary)';
+            } else {
+                btnEn.style.fontWeight = 'bold';
+                btnEn.style.color = 'var(--accent-blue)';
+                btnJa.style.fontWeight = 'normal';
+                btnJa.style.color = 'var(--text-secondary)';
+            }
+        }
+
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            const translation = I18N_DICT[lang][key];
+            if (translation) {
+                if (key === 'terms_intro' || key === 'guide_steps' || key === 'guide_desc') {
+                    el.innerHTML = translation;
+                } else {
+                    el.textContent = translation;
+                }
+            }
+        });
+
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+            const key = el.getAttribute('data-i18n-placeholder');
+            const translation = I18N_DICT[lang][key];
+            if (translation) el.placeholder = translation;
+        });
+
+        document.querySelectorAll('[data-i18n-title]').forEach(el => {
+            const key = el.getAttribute('data-i18n-title');
+            const translation = I18N_DICT[lang][key];
+            if (translation) el.title = translation;
+        });
+
+        const termsLink = document.getElementById('terms-link');
+        const termsFooterLink = document.getElementById('terms-footer-link');
+        const termsPath = lang === 'en' ? '/static/terms_en.html' : '/static/terms.html';
+        if (termsLink) termsLink.setAttribute('href', termsPath);
+        if (termsFooterLink) termsFooterLink.setAttribute('href', termsPath);
+
+        // タイトル・メタ情報（description / keywords / OGP / Twitter / JSON-LD）を言語に合わせて更新
+        applyMetaLanguage(lang);
+
+        // 動的な「無料プランに変更」ボタンのテキストや「現在のプラン」テキストなども更新する必要があるが、それはログイン状態変化時(sync時)に別途処理される。
+    }
+
+    const langBtnJa = document.getElementById('lang-ja');
+    const langBtnEn = document.getElementById('lang-en');
+    if (langBtnJa) langBtnJa.addEventListener('click', () => applyLanguage('ja'));
+    if (langBtnEn) langBtnEn.addEventListener('click', () => applyLanguage('en'));
+
+    // 初期適用
+    applyLanguage(currentLang);
+
     // --- UI要素 ---
     const wrapper = document.getElementById('canvas-wrapper');
     const loadingOverlay = document.getElementById('loading-overlay');
@@ -59,10 +344,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const p = loadingOverlay ? loadingOverlay.querySelector('p') : null;
         if (!p) return;
         let secs = 0;
-        p.textContent = baseText + '（0秒）';
+        const suffix = currentLang === 'en' ? 's' : '秒';
+        p.textContent = baseText + ` (0${suffix})`;
         _loadingTimerID = setInterval(() => {
             secs++;
-            p.textContent = baseText + `（${secs}秒）`;
+            p.textContent = baseText + ` (${secs}${suffix})`;
         }, 1000);
     }
     function stopLoadingTimer() {
@@ -74,7 +360,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!token) return;
         try {
             const d = await fetch('/api/user/sync', {
-                method: 'POST', headers: { 'Authorization': `Bearer ${token}` }
+                method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Accept-Language': currentLang }
             }).then(r => r.json());
             const remaining = d.credits ?? 0;
             document.getElementById('credit-count').textContent = remaining;
@@ -198,7 +484,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             reader.readAsDataURL(file);
         } else if (!fCanvas.backgroundImage) {
-            alert('先に背景をアップロードしてください。');
+            alert(I18N_DICT[currentLang].msg_load_bg_first);
         }
     });
 
@@ -253,7 +539,7 @@ document.addEventListener('DOMContentLoaded', () => {
             setControlsDisabled(true);
             if (loadingOverlay) {
                 loadingOverlay.classList.remove('hidden');
-                startLoadingTimer('AIによる指示を実行中... 通常20〜60秒かかります');
+                startLoadingTimer(I18N_DICT[currentLang].timer_instruction);
             }
 
             try {
@@ -275,14 +561,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     res = await fetch('/api/instruction', {
                         method: 'POST',
                         body: formData,
-                        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+                        headers: token ? { 'Authorization': `Bearer ${token}`, 'Accept-Language': currentLang } : { 'Accept-Language': currentLang },
                         signal: controller.signal
                     });
                 } finally {
                     clearTimeout(timer);
                 }
                 if (res.status === 402) {
-                    alert('チケットが不足しています。プランのアップグレードをご検討ください。');
+                    alert(I18N_DICT[currentLang].msg_insufficient_tickets);
                     const modal = document.getElementById('pricing-modal');
                     if (modal) modal.classList.remove('hidden');
                     return;
@@ -294,7 +580,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 fCanvas.clear();
                 instructInput.value = '';
                 const remaining = await refreshCredits(token);
-                showToast(`✓ 完了（残り ${remaining ?? '?'} 回）`);
+                showToast(I18N_DICT[currentLang].toast_instruct_complete.replace('{credits}', remaining ?? '?'));
             } catch (err) {
                 alert(err.message);
             } finally {
@@ -359,7 +645,7 @@ document.addEventListener('DOMContentLoaded', () => {
             setControlsDisabled(true);
             if (loadingOverlay) {
                 loadingOverlay.classList.remove('hidden');
-                startLoadingTimer('画像を馴染ませています... 通常20〜60秒かかります');
+                startLoadingTimer(I18N_DICT[currentLang].timer_blending);
             }
 
             try {
@@ -408,20 +694,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     res = await fetch('/api/blend', {
                         method: 'POST',
                         body: formData,
-                        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+                        headers: token ? { 'Authorization': `Bearer ${token}`, 'Accept-Language': currentLang } : { 'Accept-Language': currentLang },
                         signal: controller.signal
                     });
                 } finally {
                     clearTimeout(timer);
                 }
                 if (res.status === 402) {
-                    alert('チケットが不足しています。プランのアップグレードをご検討ください。');
+                    alert(I18N_DICT[currentLang].msg_insufficient_tickets);
                     const modal = document.getElementById('pricing-modal');
                     if (modal) modal.classList.remove('hidden');
                     return;
                 }
                 if (res.status === 502 || res.status === 503) {
-                    alert('サーバーエラーが発生しました（502）。\n\nチケットが消費されている可能性があります。\nページを再読み込みしてチケット数をご確認ください。\n消費されていた場合はお問い合わせください。');
+                    alert(I18N_DICT[currentLang].msg_server_error_502);
                     return;
                 }
                 const data = await res.json();
@@ -431,7 +717,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 fCanvas.remove(obj);
                 setBackgroundFromURL(data.image_base64, false);
                 const remaining = await refreshCredits(token);
-                showToast(`✓ 合成完了（残り ${remaining ?? '?'} 回）`);
+                showToast(I18N_DICT[currentLang].toast_blend_complete.replace('{credits}', remaining ?? '?'));
             } catch (err) {
                 alert(err.message);
             } finally {
@@ -459,7 +745,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (clearBtn) {
         clearBtn.addEventListener('click', () => {
             if (!fCanvas.backgroundImage) return;
-            if (!confirm('キャンバスをクリアしますか？\n現在の作業内容はすべて消去されます。')) return;
+            if (!confirm(I18N_DICT[currentLang].msg_clear_confirm)) return;
             clearCanvas();
         });
     }
@@ -480,9 +766,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // --- 決済ロジック ---
     async function handleCheckout(params) {
-        if (!window.currentUserUID) { alert('ログインが必要です。'); return; }
+        if (!window.currentUserUID) { alert(I18N_DICT[currentLang].msg_login_required); return; }
         const token = window.getIdToken ? await window.getIdToken() : null;
-        if (!token) { alert('ログインが必要です。'); return; }
+        if (!token) { alert(I18N_DICT[currentLang].msg_login_required); return; }
         try {
             if (loadingOverlay) loadingOverlay.classList.remove('hidden');
 
@@ -491,16 +777,16 @@ document.addEventListener('DOMContentLoaded', () => {
             if (params.plan && currentPlan !== 'free') {
                 const res = await fetch('/api/change-plan', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'Accept-Language': currentLang },
                     body: JSON.stringify({ plan: params.plan })
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
                     const label = params.plan.charAt(0).toUpperCase() + params.plan.slice(1);
-                    alert(`${label}プランに変更しました。\n\n※ 差額は次回の請求日にまとめて精算されます。`);
+                    alert(I18N_DICT[currentLang].msg_plan_changed.replace('{plan}', label));
                     location.reload();
                 } else {
-                    alert(data.error || 'エラーが発生しました');
+                    alert(data.error || I18N_DICT[currentLang].msg_plan_change_failed);
                 }
                 return;
             }
@@ -508,13 +794,13 @@ document.addEventListener('DOMContentLoaded', () => {
             // 新規サブスク（FreeからのアップグレードはStripe Checkout）
             const res = await fetch('/api/create-checkout-session', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'Accept-Language': currentLang },
                 body: JSON.stringify(params)
             });
             const data = await res.json();
             if (data.url) window.location.href = data.url;
-            else alert(data.error || 'エラーが発生しました');
-        } catch (e) { alert('通信エラー'); }
+            else alert(data.error || I18N_DICT[currentLang].msg_plan_change_failed);
+        } catch (e) { alert(I18N_DICT[currentLang].msg_network_error); }
         finally { if (loadingOverlay) loadingOverlay.classList.add('hidden'); }
     }
 

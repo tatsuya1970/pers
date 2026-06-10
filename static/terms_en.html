@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terms of Service - Pers Image</title>
+    <link rel="icon" type="image/png" href="/static/logo.png">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg-app: #f7f5f2;
+            --bg-header: #ffffff;
+            --text-primary: #1a1a1a;
+            --text-secondary: #6b6560;
+            --border: #e8e4df;
+            --accent-blue: #3d5a80;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-app);
+            color: var(--text-primary);
+            line-height: 1.8;
+        }
+        header {
+            height: 52px;
+            background: var(--bg-header);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+            gap: 8px;
+        }
+        .logo-icon-box {
+            width: 28px; height: 28px;
+            background: var(--accent-blue);
+            border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 16px; font-weight: 700;
+        }
+        .header-title {
+            font-size: 15px; font-weight: 700;
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+        .container {
+            max-width: 760px;
+            margin: 48px auto;
+            padding: 0 24px 80px;
+        }
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .updated {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 40px;
+        }
+        h2 {
+            font-size: 16px;
+            font-weight: 700;
+            margin: 36px 0 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        p {
+            font-size: 14px;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+        }
+        ul {
+            font-size: 14px;
+            padding-left: 20px;
+            margin-bottom: 12px;
+        }
+        li {
+            margin-bottom: 6px;
+        }
+        .highlight-box {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo-icon-box">+</div>
+        <a href="/?lang=en" class="header-title">Pers Image</a>
+    </header>
+
+    <div class="container">
+        <h1>Terms of Service</h1>
+        <p class="updated">Last Updated: May 4, 2026</p>
+
+        <p>These Terms of Service (hereinafter referred to as the "Terms") define the conditions for using Pers Image (hereinafter referred to as the "Service"). Please read these Terms carefully before using the Service. By using the Service, you are deemed to have agreed to these Terms.</p>
+
+        <h2>Article 1 (Service Overview)</h2>
+        <p>The Service is a Web application that uses AI to synthesize and process photos and images of land and buildings to generate simple perspective drawings (completed prediction images). Generated images are downloaded directly on the spot, and are not permanently saved on the server.</p>
+
+        <h2>Article 2 (Account Registration)</h2>
+        <p>Authentication with a Google Account is required to use the Service. Users agree to the following matters:</p>
+        <ul>
+            <li>To register the account with accurate information</li>
+            <li>Not to share account authentication credentials with any third party</li>
+            <li>To notify the operator immediately if unauthorized use of the account is detected</li>
+        </ul>
+
+        <h2>Article 3 (Pricing Plans and Tickets)</h2>
+        <p>The Service provides the following pricing plans:</p>
+        <div class="highlight-box">
+            <ul style="list-style:none; padding:0;">
+                <li><strong>Free:</strong> $0 / 10 tickets (One-time, non-recurring)</li>
+                <li><strong>Lite:</strong> $5/month / 30 tickets per month</li>
+                <li><strong>Plus:</strong> $10/month / 70 tickets per month</li>
+                <li><strong>Max:</strong> $20/month / 200 tickets per month</li>
+            </ul>
+        </div>
+        <p>One ticket is consumed for each execution of AI synthesis or text instruction. Tickets for paid plans are reset at each monthly renewal and cannot be carried over to the next month. Tickets for the Free plan are granted only once at account creation, and there is no monthly reset.</p>
+
+        <h2>Article 4 (Payment)</h2>
+        <p>Fees for paid plans are billed via credit card through Stripe.</p>
+        <ul>
+            <li>The first payment is charged immediately upon subscribing to the plan.</li>
+            <li>Subsequent renewals are automatically processed on the same day every month.</li>
+            <li>Any difference in price resulting from plan changes (whether upgrades or downgrades) will be settled as a credit balance applied to future invoices. Direct refunds to the credit card will not be issued.</li>
+            <li>Downgrading to the Free plan is treated as a cancellation request effective at the end of the current billing cycle, and no refunds or adjustments will be made.</li>
+        </ul>
+
+        <h2>Article 5 (Plan Changes and Cancellation)</h2>
+        <p>Plan changes and cancellations can be made via "Manage Plan" within the app.</p>
+        <ul>
+            <li>If you cancel (change to the Free plan), you can continue to use the service until the end of the current billing cycle.</li>
+            <li>After the current cycle ends, automatic renewal will stop.</li>
+            <li>At the time of plan downgrade, if the remaining number of tickets exceeds the limit of the downgraded plan, the remaining tickets will be reset to that plan's limit.</li>
+        </ul>
+
+        <h2>Article 6 (Refund Policy)</h2>
+        <p>As a general rule, the Service does not offer refunds.</p>
+        <ul>
+            <li>Fees for the current month are final, and no refunds will be issued for cancellations or downgrades during the month.</li>
+            <li>In the event that the service is unavailable due to operator-side issues such as system failure, we will consider responses on a case-by-case basis.</li>
+            <li>For refund inquiries, please contact the support window listed at the end of this page.</li>
+        </ul>
+
+        <h2>Article 7 (Prohibited Matters)</h2>
+        <p>Users must not engage in the following acts:</p>
+        <ul>
+            <li>Creating multiple accounts to fraudulently obtain free tickets.</li>
+            <li>Generating or spreading illegal or harmful content through the Service.</li>
+            <li>Accessing the Service's system unauthorizedly or imposing an excessive load on it.</li>
+            <li>Inputting content that infringes upon the copyright, portrait rights, or privacy of a third party.</li>
+            <li>Unauthorized diversion or resale of the Service for commercial purposes.</li>
+        </ul>
+
+        <h2>Article 8 (Rights to Generated Content)</h2>
+        <p>The copyright of images generated by the user through the Service belongs to the user. However, the user must confirm and guarantee that the input images and materials do not infringe upon the rights of third parties.</p>
+        <p>The operator may use the generated data in an anonymized form for service improvement purposes.</p>
+
+        <h2>Article 9 (Disclaimer)</h2>
+        <p>The Service is a generation tool that uses AI, and the accuracy and quality of the generated results are not guaranteed.</p>
+        <ul>
+            <li>Generated images are intended for reference use (internal discussions, alignment with stakeholders, etc.) and are not suitable for official public use such as building confirmation applications.</li>
+            <li>The operator bears no liability for damages resulting from service suspension due to system failures, maintenance, etc.</li>
+            <li>If a user causes damage to a third party through the use of the Service, the user themselves shall bear the responsibility.</li>
+        </ul>
+
+        <h2>Article 10 (Personal Information)</h2>
+        <p>Information stored in the database by the Service is limited to the identifier (UID) linked to the Google account and usage details such as plans and remaining tickets. Email addresses and display names are not saved on the server. This information is used solely for the purpose of providing the service and is not provided to third parties.</p>
+
+        <h2>Article 11 (Changes to Terms)</h2>
+        <p>The operator may change these Terms as necessary. The modified Terms shall become effective from the time they are posted on the Service. If you continue to use the Service after the changes, you are deemed to have agreed to the modified Terms.</p>
+
+        <h2>Article 12 (Governing Law and Jurisdiction)</h2>
+        <p>These Terms shall be governed by Japanese law. Any dispute concerning the Service shall be subject to the exclusive jurisdiction of the Japanese courts.</p>
+
+        <h2>Contact Us</h2>
+        <p>For inquiries regarding these Terms, please contact us via <a href="https://forms.gle/PTqkNCde4MnWh3pz8" target="_blank" style="color: var(--accent-blue);">this form</a>.</p>
+    </div>
+</body>
+</html>

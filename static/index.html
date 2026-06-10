@@ -8,6 +8,11 @@
     <meta name="keywords" content="建物パース,AI合成,建築パース,不動産,簡易パース,写真合成,Pers Image">
     <link rel="canonical" href="https://persimage.com/">
 
+    <!-- 多言語アノテーション（hreflang） -->
+    <link rel="alternate" hreflang="ja" href="https://persimage.com/?lang=ja">
+    <link rel="alternate" hreflang="en" href="https://persimage.com/?lang=en">
+    <link rel="alternate" hreflang="x-default" href="https://persimage.com/">
+
     <!-- OGP -->
     <meta property="og:type" content="website">
     <meta property="og:title" content="Pers Image - AIで建物パースを簡単合成">
@@ -16,6 +21,7 @@
     <meta property="og:image" content="https://persimage.com/static/logo.png">
     <meta property="og:site_name" content="Pers Image">
     <meta property="og:locale" content="ja_JP">
+    <meta property="og:locale:alternate" content="en_US">
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary">
@@ -28,7 +34,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- 構造化データ -->
-    <script type="application/ld+json">
+    <script type="application/ld+json" id="ld-json">
     {
         "@context": "https://schema.org",
         "@type": "WebApplication",
@@ -56,12 +62,12 @@
     <!-- 利用規約同意モーダル -->
     <div id="terms-modal" class="pricing-overlay hidden">
         <div class="login-modal" style="max-width: 480px; width: 95%; padding: 36px 32px;">
-            <h2 style="font-size:18px; font-weight:700; margin-bottom:12px;">Pers Imageへようこそ</h2>
-            <p style="font-size:13px; color:var(--text-secondary); margin-bottom:20px; line-height:1.7;">
-                ご利用前に<a href="/static/terms.html" target="_blank" style="color:var(--accent-blue);">利用規約</a>をご確認ください。<br>
+            <h2 data-i18n="terms_welcome" style="font-size:18px; font-weight:700; margin-bottom:12px;">Pers Imageへようこそ</h2>
+            <p data-i18n="terms_intro" style="font-size:13px; color:var(--text-secondary); margin-bottom:20px; line-height:1.7;">
+                ご利用前に<a href="/static/terms.html" id="terms-link" data-i18n="terms_link" target="_blank" style="color:var(--accent-blue);">利用規約</a>をご確認ください。<br>
                 「同意して始める」をクリックすることで、利用規約に同意したものとみなします。
             </p>
-            <button id="terms-agree-btn" class="btn btn-blue" style="width:100%; font-size:14px; padding:12px;">同意して始める</button>
+            <button id="terms-agree-btn" data-i18n="terms_agree_btn" class="btn btn-blue" style="width:100%; font-size:14px; padding:12px;">同意して始める</button>
         </div>
     </div>
 
@@ -69,37 +75,37 @@
     <div id="pricing-modal" class="pricing-overlay hidden">
         <div class="login-modal" style="max-width: 960px; width: 95%; padding: 40px;">
             <div id="close-pricing-btn" style="position:absolute;top:16px;right:20px;cursor:pointer;color:#9ca3af;font-size:22px;">✕</div>
-            <h2 class="pricing-title">料金プラン</h2>
+            <h2 class="pricing-title" data-i18n="pricing_title">料金プラン</h2>
 
             <div class="pricing-grid" style="grid-template-columns: repeat(4,1fr); gap:12px; width:100%; margin-bottom:24px;">
                 <div class="pricing-card">
-                    <div class="tier-name">Free</div>
-                    <div class="tier-price">$0<span>/月</span></div>
-                    <div class="tier-description">まずは試したい方へ</div>
-                    <ul class="tier-features"><li>月間 10 回</li></ul>
-                    <button id="plan-btn-free" class="btn-plan btn-outline" disabled>現在のプラン</button>
+                    <div class="tier-name" data-i18n="plan_free_name">Free</div>
+                    <div class="tier-price">$0<span data-i18n="pricing_monthly">/月</span></div>
+                    <div class="tier-description" data-i18n="plan_free_desc">まずは試したい方へ</div>
+                    <ul class="tier-features"><li data-i18n="plan_free_feat">月間 10 回</li></ul>
+                    <button id="plan-btn-free" class="btn-plan btn-outline" data-i18n="current_plan" disabled>現在のプラン</button>
                 </div>
                 <div class="pricing-card">
-                    <div class="tier-name">Lite</div>
-                    <div class="tier-price">$5<span>/月</span></div>
-                    <div class="tier-description">気軽に使いたい方へ</div>
-                    <ul class="tier-features"><li>月間 30 回</li></ul>
-                    <button id="plan-btn-lite" class="btn-plan btn-outline" data-plan="lite">Liteプランへ</button>
+                    <div class="tier-name" data-i18n="plan_lite_name">Lite</div>
+                    <div class="tier-price">$5<span data-i18n="pricing_monthly">/月</span></div>
+                    <div class="tier-description" data-i18n="plan_lite_desc">気軽に使いたい方へ</div>
+                    <ul class="tier-features"><li data-i18n="plan_lite_feat">月間 30 回</li></ul>
+                    <button id="plan-btn-lite" class="btn-plan btn-outline" data-plan="lite" data-i18n="to_lite_plan">Liteプランへ</button>
                 </div>
                 <div class="pricing-card featured">
-                    <div class="badge-featured">おすすめ</div>
-                    <div class="tier-name">Plus</div>
-                    <div class="tier-price">$10<span>/月</span></div>
-                    <div class="tier-description">日々の提案をより高品質に</div>
-                    <ul class="tier-features"><li>月間 70 回</li></ul>
-                    <button id="plan-btn-plus" class="btn-plan btn-plan-pro" data-plan="plus">Plusプランへ</button>
+                    <div class="badge-featured" data-i18n="plan_recommended">おすすめ</div>
+                    <div class="tier-name" data-i18n="plan_plus_name">Plus</div>
+                    <div class="tier-price">$10<span data-i18n="pricing_monthly">/月</span></div>
+                    <div class="tier-description" data-i18n="plan_plus_desc">日々の提案をより高品質に</div>
+                    <ul class="tier-features"><li data-i18n="plan_plus_feat">月間 70 回</li></ul>
+                    <button id="plan-btn-plus" class="btn-plan btn-plan-pro" data-plan="plus" data-i18n="to_plus_plan">Plusプランへ</button>
                 </div>
                 <div class="pricing-card">
-                    <div class="tier-name">Max</div>
-                    <div class="tier-price">$20<span>/月</span></div>
-                    <div class="tier-description">ヘビーユーザー向け</div>
-                    <ul class="tier-features"><li>月間 200 回</li></ul>
-                    <button id="plan-btn-max" class="btn-plan btn-plan-pro" data-plan="max">Maxプランへ</button>
+                    <div class="tier-name" data-i18n="plan_max_name">Max</div>
+                    <div class="tier-price">$20<span data-i18n="pricing_monthly">/月</span></div>
+                    <div class="tier-description" data-i18n="plan_max_desc">ヘビーユーザー向け</div>
+                    <ul class="tier-features"><li data-i18n="plan_max_feat">月間 200 回</li></ul>
+                    <button id="plan-btn-max" class="btn-plan btn-plan-pro" data-plan="max" data-i18n="to_max_plan">Maxプランへ</button>
                 </div>
             </div>
         </div>
@@ -109,7 +115,7 @@
     <!-- ローディング -->
     <div id="loading-overlay" class="loading-overlay hidden">
         <div class="spinner"></div>
-        <p style="font-size:13px;color:#374151;">処理中...</p>
+        <p data-i18n="processing" style="font-size:13px;color:#374151;">処理中...</p>
     </div>
     <div id="click-blocker" class="click-blocker"></div>
 
@@ -119,18 +125,25 @@
             <div class="logo-icon-box">+</div>
             <span class="header-title">Pers Image</span>
         </div>
-        <div class="header-actions hidden" id="user-info">
-            <span id="user-name" style="font-size:13px;color:var(--text-secondary);"></span>
-            <span class="credit-badge">チケット残り：<span id="credit-count">--</span> 枚</span>
-            <span id="user-plan" class="plan-badge">--</span>
-            <button id="show-pricing-btn" class="header-link">プラン管理</button>
-            <button id="logout-btn" class="header-link header-link-red">ログアウト</button>
-            <!-- JS互換用 非表示 -->
-            <span id="user-email" style="display:none;"></span>
-            <span id="addon-credit-count" style="display:none;"></span>
-        </div>
-        <div id="login-btn-area">
-            <button id="google-login-btn" class="header-link" style="font-weight:600;color:var(--accent-blue);text-decoration:none;">ログイン</button>
+        <div style="display: flex; align-items: center; gap: 16px; margin-left: auto;">
+            <div class="lang-selector" style="display: flex; gap: 8px; align-items: center; font-size: 13px; font-weight: 500; font-family: inherit;">
+                <span id="lang-ja" style="cursor: pointer; font-weight: bold; color: var(--accent-blue);">JP</span>
+                <span style="color: var(--border);">|</span>
+                <span id="lang-en" style="cursor: pointer; color: var(--text-secondary);">EN</span>
+            </div>
+            <div class="header-actions hidden" id="user-info">
+                <span id="user-name" style="font-size:13px;color:var(--text-secondary);"></span>
+                <span class="credit-badge"><span data-i18n="tickets_remaining_prefix">チケット残り：</span><span id="credit-count">--</span><span data-i18n="tickets_remaining_suffix"> 枚</span></span>
+                <span id="user-plan" class="plan-badge">--</span>
+                <button id="show-pricing-btn" class="header-link" data-i18n="show_pricing">プラン管理</button>
+                <button id="logout-btn" class="header-link header-link-red" data-i18n="logout">ログアウト</button>
+                <!-- JS互換用 非表示 -->
+                <span id="user-email" style="display:none;"></span>
+                <span id="addon-credit-count" style="display:none;"></span>
+            </div>
+            <div id="login-btn-area">
+                <button id="google-login-btn" class="header-link" data-i18n="login" style="font-weight:600;color:var(--accent-blue);text-decoration:none;">ログイン</button>
+            </div>
         </div>
     </header>
 
@@ -140,44 +153,44 @@
 
 
             <div class="section">
-                <div class="section-label">背景設定</div>
-                <button class="btn btn-blue" id="open-bg-btn" disabled>背景写真を読み込む</button>
+                <div class="section-label" data-i18n="sidebar_bg_settings">背景設定</div>
+                <button class="btn btn-blue" id="open-bg-btn" data-i18n="sidebar_load_bg" disabled>背景写真を読み込む</button>
                 <input type="file" id="bg-input" accept="image/*" class="hidden">
             </div>
 
             <div class="section">
-                <div class="section-label">要素の追加</div>
+                <div class="section-label" data-i18n="sidebar_add_elements">要素の追加</div>
                 <div class="btn-row">
-                    <button class="btn btn-default" id="add-photo-btn">写真</button>
-                    <button class="btn btn-default" id="add-sketch-btn">イラスト</button>
+                    <button class="btn btn-default" id="add-photo-btn" data-i18n="sidebar_photo">写真</button>
+                    <button class="btn btn-default" id="add-sketch-btn" data-i18n="sidebar_sketch">イラスト</button>
                 </div>
             </div>
 
             <div class="section">
-                <button class="btn btn-blue" id="blend-btn" disabled>背景に合成（チケット1枚）</button>
+                <button class="btn btn-blue" id="blend-btn" data-i18n="sidebar_blend_btn" disabled>背景に合成（チケット1枚）</button>
             </div>
 
             <div class="section">
-                <div class="section-label">テキスト指示</div>
-                <textarea class="textarea" placeholder="例：空を夕方にする、木を増やす..."></textarea>
-                <button class="btn btn-dark" id="ai-instruct-btn">テキスト指示を実行（チケット1枚）</button>
+                <div class="section-label" data-i18n="sidebar_text_instruction">テキスト指示</div>
+                <textarea class="textarea" data-i18n-placeholder="sidebar_placeholder_instruction" placeholder="例：空を夕方にする、木を増やす..."></textarea>
+                <button class="btn btn-dark" id="ai-instruct-btn" data-i18n="sidebar_ai_instruct_btn">テキスト指示を実行（チケット1枚）</button>
             </div>
 
-            <button class="btn btn-green" id="export-btn">画像を保存 (PNG)</button>
+            <button class="btn btn-green" id="export-btn" data-i18n="sidebar_export_btn">画像を保存 (PNG)</button>
 
             <div class="section" style="display:none;">
                 <select id="quality-select">
-                    <option value="high">High ($0.08)</option>
-                    <option value="medium" selected>Medium ($0.04)</option>
+                    <option value="high" selected>High ($0.08)</option>
+                    <option value="medium">Medium ($0.04)</option>
                     <option value="low">Low ($0.02)</option>
                 </select>
             </div>
 
             <div class="ad-space"></div>
 
-            <a href="https://forms.gle/PTqkNCde4MnWh3pz8" target="_blank" class="feedback-link">ご意見・ご質問・バグ報告</a>
-            <a href="/static/terms.html" target="_blank" class="feedback-link">利用規約</a>
-            <a href="https://takemura-techlab.com/tokusho.html" target="_blank" class="feedback-link">特定商取引法に基づく表記</a>
+            <a href="https://forms.gle/PTqkNCde4MnWh3pz8" target="_blank" class="feedback-link" data-i18n="footer_feedback">ご意見・ご質問・バグ報告</a>
+            <a href="/static/terms.html" id="terms-footer-link" target="_blank" class="feedback-link" data-i18n="footer_terms">利用規約</a>
+            <a href="https://takemura-techlab.com/tokusho.html" target="_blank" class="feedback-link" data-i18n="footer_tokusho">特定商取引法に基づく表記</a>
             <a href="https://takemura-techlab.com/index.html" target="_blank" class="feedback-link">© 2025 Takemura Tech Lab</a>
 
         </aside>
@@ -197,13 +210,13 @@
                         background:rgba(247,245,242,0.97);
                         border-bottom:1px solid #e8e4df; flex-shrink:0;
                     ">
-                        <h1 style="font-weight:700; font-size:42px; color:#111827; margin:0 0 10px 0;">Pers Image - AIで建物パースを簡単合成</h1>
-                        <div style="font-size:16px; color:#6b7280; line-height:1.7;">
+                        <h1 data-i18n="guide_title" style="font-weight:700; font-size:42px; color:#111827; margin:0 0 10px 0;">Pers Image - AIで建物パースを簡単合成</h1>
+                        <div id="guide-description" data-i18n="guide_desc" style="font-size:16px; color:#6b7280; line-height:1.7;">
                             土地・建物の写真や画像をもとに、AIが簡易パースをその場でスピーディに生成します。<br>
                             正式なパース作成前の社内協議や、関係者との認識合わせにお役立てください。<br>
                             まず右上の「ログイン」からGoogleアカウントでサインインしてください。
                         </div>
-                        <div style="font-size:15px; color:#9ca3af; display:flex; gap:16px; justify-content:center; margin-top:8px;">
+                        <div id="guide-steps" data-i18n="guide_steps" style="font-size:15px; color:#9ca3af; display:flex; gap:16px; justify-content:center; margin-top:8px;">
                             <span>① 背景写真を読み込む</span><span>→</span>
                             <span>② 建物画像を追加</span><span>→</span>
                             <span>③ 合成ボタンを押す</span>
@@ -223,13 +236,13 @@
 
                 <!-- キャンバス右下オーバーレイボタン -->
                 <div class="canvas-overlay-btns">
-                    <button class="icon-btn" id="undo-btn" title="元に戻す" disabled>
+                    <button class="icon-btn" id="undo-btn" data-i18n-title="tooltip_undo" title="元に戻す" disabled>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="9 14 4 9 9 4"/>
                             <path d="M20 20v-7a4 4 0 0 0-4-4H4"/>
                         </svg>
                     </button>
-                    <button class="icon-btn icon-btn-red" id="clear-btn" title="クリア" disabled>
+                    <button class="icon-btn icon-btn-red" id="clear-btn" data-i18n-title="tooltip_clear" title="クリア" disabled>
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="3 6 5 6 21 6"/>
                             <path d="M19 6l-1 14H6L5 6"/>
@@ -266,6 +279,36 @@
 
         const provider = new GoogleAuthProvider();
 
+        const currentLang = localStorage.getItem('pers_lang') || 
+            (((navigator.language || navigator.userLanguage || '').toLowerCase().startsWith('en')) ? 'en' : 'ja');
+        
+        const INLINE_I18N = {
+            ja: {
+                current_plan: "現在のプラン",
+                to_lite_plan: "Liteプランへ",
+                to_plus_plan: "Plusプランへ",
+                to_max_plan: "Maxプランへ",
+                change_to_free_plan: "無料プランに変更",
+                confirm_downgrade: "無料プランに変更しますか？\n\n⚠️ チケットが減る可能性があります。無料プランの上限（10枚）を超えている場合、10枚にリセットされます。\n\n※ 現在の契約期間が終了するまで、Stripeによる課金は継続されます。\n期間終了後に自動更新が停止し、無料プランに切り替わります。",
+                downgrade_accepted: "無料プランへの変更を受け付けました。\n\n現在の契約期間が終了するまでは引き続きご利用いただけます。\n期間終了後に自動更新が停止します。\n\n※ Stripeからの請求は現在の期間終了後に停止します。",
+                failed_to_change: "変更に失敗しました。",
+                confirm_logout: "ログアウトしますか？\n現在画面に表示されている画像は、ログアウトすると消去されます。\nよろしいですか？",
+                login_failed: "ログインに失敗しました。しばらく経ってから再度お試しください。"
+            },
+            en: {
+                current_plan: "Current Plan",
+                to_lite_plan: "Upgrade to Lite",
+                to_plus_plan: "Upgrade to Plus",
+                to_max_plan: "Upgrade to Max",
+                change_to_free_plan: "Downgrade to Free",
+                confirm_downgrade: "Are you sure you want to change to the Free plan?\n\n⚠️ Your tickets may be reduced. If your tickets exceed the Free plan limit (10), they will be reset to 10.\n\n* Your Stripe subscription billing will continue until the end of the current billing cycle. It will automatically stop renewing and downgrade to Free at that point.",
+                downgrade_accepted: "We have received your request to downgrade to the Free plan.\n\nYou can continue to use the service until the end of the current billing period.\nStripe billing will stop after the current period.",
+                failed_to_change: "Failed to change plan.",
+                confirm_logout: "Are you sure you want to log out?\nThe image currently displayed on the screen will be cleared upon logout. Continue?",
+                login_failed: "Failed to login. Please try again after a while."
+            }
+        }[currentLang];
+
         onAuthStateChanged(auth, async (user) => {
             const pricingModal = document.getElementById('pricing-modal');
             const userInfo = document.getElementById('user-info');
@@ -281,7 +324,7 @@
                 document.getElementById('user-name').textContent = user.displayName || user.email;
 
                 const syncToken = await user.getIdToken();
-                fetch('/api/user/sync', { method: 'POST', headers: { 'Authorization': `Bearer ${syncToken}` } })
+                fetch('/api/user/sync', { method: 'POST', headers: { 'Authorization': `Bearer ${syncToken}`, 'Accept-Language': currentLang } })
                     .then(r => r.json()).then(data => {
                         const credits = data.credits ?? 0;
                         const addon = data.addon_credits ?? 0;
@@ -297,37 +340,37 @@
                             document.getElementById('user-plan').textContent = planDisplay;
                             const planDefs = [
                                 { id: 'plan-btn-free', key: 'FREE',  upgradeText: null },
-                                { id: 'plan-btn-lite', key: 'LITE',  upgradeText: 'Liteプランへ' },
-                                { id: 'plan-btn-plus', key: 'PLUS',  upgradeText: 'Plusプランへ' },
-                                { id: 'plan-btn-max',  key: 'MAX',   upgradeText: 'Maxプランへ' },
+                                { id: 'plan-btn-lite', key: 'LITE',  upgradeText: INLINE_I18N.to_lite_plan },
+                                { id: 'plan-btn-plus', key: 'PLUS',  upgradeText: INLINE_I18N.to_plus_plan },
+                                { id: 'plan-btn-max',  key: 'MAX',   upgradeText: INLINE_I18N.to_max_plan },
                             ];
                             const isPaid = planLabel !== 'FREE';
                             planDefs.forEach(def => {
                                 const btn = document.getElementById(def.id);
                                 if (!btn) return;
                                 if (def.key === planLabel) {
-                                    btn.textContent = '現在のプラン';
+                                    btn.textContent = INLINE_I18N.current_plan;
                                     btn.disabled = true;
                                 } else if (def.key === 'FREE') {
                                     if (isPaid) {
-                                        btn.textContent = '無料プランに変更';
+                                        btn.textContent = INLINE_I18N.change_to_free_plan;
                                         btn.disabled = false;
                                         btn.onclick = async () => {
-                                            if (confirm('無料プランに変更しますか？\n\n⚠️ チケットが減る可能性があります。無料プランの上限（10枚）を超えている場合、10枚にリセットされます。\n\n※ 現在の契約期間が終了するまで、Stripeによる課金は継続されます。\n期間終了後に自動更新が停止し、無料プランに切り替わります。')) {
+                                            if (confirm(INLINE_I18N.confirm_downgrade)) {
                                                 const token = await window.getIdToken();
-                                                fetch('/api/user/downgrade', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
+                                                fetch('/api/user/downgrade', { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Accept-Language': currentLang } })
                                                     .then(r => r.json()).then(d => {
                                                         if (d.status === 'success') {
-                                                            alert('無料プランへの変更を受け付けました。\n\n現在の契約期間が終了するまでは引き続きご利用いただけます。\n期間終了後に自動更新が停止します。\n\n※ Stripeからの請求は現在の期間終了後に停止します。');
+                                                            alert(INLINE_I18N.downgrade_accepted);
                                                             location.reload();
                                                         } else {
-                                                            alert('変更に失敗しました。');
+                                                            alert(INLINE_I18N.failed_to_change);
                                                         }
                                                     });
                                             }
                                         };
                                     } else {
-                                        btn.textContent = '現在のプラン';
+                                        btn.textContent = INLINE_I18N.current_plan;
                                         btn.disabled = true;
                                     }
                                 } else {
@@ -340,7 +383,7 @@
 
                 document.getElementById('terms-agree-btn').onclick = async () => {
                     const token = await user.getIdToken();
-                    await fetch('/api/user/agree-terms', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+                    await fetch('/api/user/agree-terms', { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Accept-Language': currentLang } });
                     document.getElementById('terms-modal').classList.add('hidden');
                 };
 
@@ -348,7 +391,7 @@
                 document.getElementById('show-pricing-btn').onclick = () => pricingModal.classList.remove('hidden');
                 document.getElementById('close-pricing-btn').onclick = () => pricingModal.classList.add('hidden');
                 document.getElementById('logout-btn').onclick = () => {
-                    if (confirm('ログアウトしますか？\n現在画面に表示されている画像は、ログアウトすると消去されます。\nよろしいですか？')) {
+                    if (confirm(INLINE_I18N.confirm_logout)) {
                         if (typeof window.clearCanvas === 'function') window.clearCanvas();
                         signOut(auth);
                     }
@@ -366,12 +409,12 @@
             signInWithPopup(auth, provider).catch(err => {
                 console.error("Login Error:", err);
                 if (err.code !== 'auth/popup-closed-by-user') {
-                    alert('ログインに失敗しました。しばらく経ってから再度お試しください。');
+                    alert(INLINE_I18N.login_failed);
                 }
             });
         };
     </script>
-    <script type="module" src="/static/app.js?v=4"></script>
+    <script type="module" src="/static/app.js?v=5"></script>
     <script>
         (async () => {
             const res = await fetch('/api/pic-list');

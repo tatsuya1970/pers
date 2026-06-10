@@ -112,6 +112,32 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
 
+        const currentLang = localStorage.getItem('pers_lang') || 
+            (((navigator.language || navigator.userLanguage || '').toLowerCase().startsWith('en')) ? 'en' : 'ja');
+        
+        document.documentElement.lang = currentLang;
+
+        const I18N = {
+            ja: {
+                title: "決済完了 - Pers Image",
+                header: "決済が完了しました！",
+                message_init: "プランをアップグレード中です。<br>自動的にホーム画面に戻ります...",
+                message_addon: "追加クレジットを付与しました。<br>自動的にホーム画面に戻ります...",
+                message_plan: "プランをアップグレードしました。<br>自動的にホーム画面に戻ります..."
+            },
+            en: {
+                title: "Payment Completed - Pers Image",
+                header: "Payment Completed!",
+                message_init: "Upgrading your plan.<br>Redirecting to home screen automatically...",
+                message_addon: "Additional credits have been granted.<br>Redirecting to home screen automatically...",
+                message_plan: "Your plan has been upgraded.<br>Redirecting to home screen automatically..."
+            }
+        }[currentLang];
+
+        document.title = I18N.title;
+        document.querySelector('h1').textContent = I18N.header;
+        document.getElementById("message").innerHTML = I18N.message_init;
+
         onAuthStateChanged(auth, async (firebaseUser) => {
             if (!firebaseUser) {
                 setTimeout(() => { window.location.href = "/"; }, 3000);
@@ -128,7 +154,8 @@
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
-                            "Authorization": `Bearer ${idToken}`
+                            "Authorization": `Bearer ${idToken}`,
+                            "Accept-Language": currentLang
                         },
                         body: JSON.stringify({ session_id: sessionId })
                     });
@@ -136,8 +163,8 @@
                     if (data.status === "success") {
                         const isAddon = data.addon_credits > 0;
                         document.getElementById("message").innerHTML = isAddon
-                            ? `追加クレジットを付与しました。<br>自動的にホーム画面に戻ります...`
-                            : `プランをアップグレードしました。<br>自動的にホーム画面に戻ります...`;
+                            ? I18N.message_addon
+                            : I18N.message_plan;
                     }
                 } catch (e) {
                     console.error("verify-payment error:", e);

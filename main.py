@@ -314,7 +314,11 @@ def send_error_email_task(base_error: str, traceback_str: str, user_id: str = No
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     uid_str = user_id or "不明"
 
+    # pytest 実行中は PYTEST_CURRENT_TEST が自動でセットされる。テスト由来のメールと区別する。
+    is_test = bool(os.getenv("PYTEST_CURRENT_TEST"))
+
     body = (
+        f"{'【これはテストです】' + chr(10) + chr(10) if is_test else ''}"
         f"Pers Imageでシステムエラーが発生しました。\n\n"
         f"【日時】\n{now_str}\n\n"
         f"【ユーザーID】\n{uid_str}\n\n"
@@ -327,7 +331,7 @@ def send_error_email_task(base_error: str, traceback_str: str, user_id: str = No
         return
 
     msg = MIMEText(body)
-    msg['Subject'] = '【エラー通知】Pers Image システムエラー'
+    msg['Subject'] = ('【テスト】' if is_test else '') + '【エラー通知】Pers Image システムエラー'
     msg['From'] = smtp_user
     msg['To'] = 'tatsuya.takemura@gmail.com'
 

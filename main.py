@@ -1,6 +1,8 @@
 from fastapi import FastAPI, File, UploadFile, Form, Header, Depends, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+import hmac
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -34,6 +36,7 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:8000")
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "tatsuya.takemura@gmail.com")
 
 # Firebase Admin SDK 初期化（IDトークン検証用）
 if not firebase_admin._apps:
@@ -92,6 +95,20 @@ from logic.image_processor import ImageProcessor
 
 app = FastAPI(title="Pers Image SaaS - 建物パース合成")
 
+# CORS: 本番ドメインとローカル開発のみ許可
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://persimage.com",
+        "https://pers-rk75.onrender.com",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Authorization", "Content-Type", "Accept-Language", "X-Admin-Secret"],
+)
+
 @app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
@@ -99,6 +116,16 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://www.gstatic.com https://apis.google.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://apis.google.com; "
+        "frame-src https://accounts.google.com https://pers-56158.firebaseapp.com;"
+    )
     return response
 
 # ── メンテナンスモード（ファイルで永続化：再起動後も維持） ──
@@ -155,7 +182,7 @@ async def maintenance_on(request: Request):
     if not _check_admin_rate_limit(ip):
         return JSONResponse(status_code=429, content={"error": "Too many attempts. Try again later."})
     secret = request.headers.get("X-Admin-Secret", "")
-    if not ADMIN_SECRET or secret != ADMIN_SECRET:
+    if not ADMIN_SECRET or not hmac.compare_digest(secret, ADMIN_SECRET):
         _record_admin_failure(ip)
         return JSONResponse(status_code=403, content={"error": "Forbidden"})
     set_maintenance(True)
@@ -168,7 +195,7 @@ async def maintenance_off(request: Request):
     if not _check_admin_rate_limit(ip):
         return JSONResponse(status_code=429, content={"error": "Too many attempts. Try again later."})
     secret = request.headers.get("X-Admin-Secret", "")
-    if not ADMIN_SECRET or secret != ADMIN_SECRET:
+    if not ADMIN_SECRET or not hmac.compare_digest(secret, ADMIN_SECRET):
         _record_admin_failure(ip)
         return JSONResponse(status_code=403, content={"error": "Forbidden"})
     set_maintenance(False)
@@ -181,7 +208,7 @@ async def admin_fix_user_plan(request: Request, db: Session = Depends(get_db)):
     if not _check_admin_rate_limit(ip):
         return JSONResponse(status_code=429, content={"error": "Too many attempts. Try again later."})
     secret = request.headers.get("X-Admin-Secret", "")
-    if not ADMIN_SECRET or secret != ADMIN_SECRET:
+    if not ADMIN_SECRET or not hmac.compare_digest(secret, ADMIN_SECRET):
         _record_admin_failure(ip)
         return JSONResponse(status_code=403, content={"error": "Forbidden"})
     body = await request.json()
@@ -303,12 +330,21 @@ def _check_admin_rate_limit(ip: str) -> bool:
 def _record_admin_failure(ip: str):
     _admin_attempts.setdefault(ip, []).append(time.time())
 
-def _deduct_one_credit(user: User) -> None:
-    """AI処理成功後にチケットを1枚消費する。credits優先、なければaddon。"""
+def _deduct_one_credit(user: User) -> str:
+    """チケットを1枚消費する。credits優先、なければaddon。戻り値は引き落とし元 ('credits'|'addon')。"""
     if user.credits > 0:
         user.credits -= 1
+        return "credits"
     else:
         user.addon_credits = (user.addon_credits or 0) - 1
+        return "addon"
+
+def _refund_one_credit(user: User, pool: str) -> None:
+    """AI処理失敗時にチケットを1枚返却する。"""
+    if pool == "addon":
+        user.addon_credits = (user.addon_credits or 0) + 1
+    else:
+        user.credits += 1
 
 def _record_payment_session(
     db: Session,
@@ -380,7 +416,7 @@ def send_error_email_task(base_error: str, traceback_str: str, user_id: str = No
     msg = MIMEText(body)
     msg['Subject'] = ('【テスト】' if is_test else '') + '【エラー通知】Pers Image システムエラー'
     msg['From'] = smtp_user
-    msg['To'] = 'tatsuya.takemura@gmail.com'
+    msg['To'] = ADMIN_EMAIL
 
     try:
         server = smtplib.SMTP(smtp_server, smtp_port, timeout=10)
@@ -494,12 +530,14 @@ async def delete_gallery_image(image_id: int, user: User = Depends(get_current_u
     if not img:
         return JSONResponse(status_code=404, content={"error": MESSAGES[lang]["image_not_found"]})
         
-    # 必要に応じてローカルファイルも削除
+    # 必要に応じてローカルファイルも削除（パストラバーサル防止付き）
     if img.file_path:
-        file_system_path = img.file_path.lstrip('/')
-        if os.path.exists(file_system_path):
+        import pathlib
+        allowed_dir = pathlib.Path("static").resolve()
+        file_system_path = pathlib.Path(img.file_path.lstrip("/")).resolve()
+        if str(file_system_path).startswith(str(allowed_dir)) and file_system_path.exists():
             try:
-                os.remove(file_system_path)
+                file_system_path.unlink()
             except Exception as e:
                 print(f"Failed to delete file {file_system_path}: {e}")
                 
@@ -541,9 +579,15 @@ async def sketch_to_real(
             return JSONResponse(status_code=413, content={"error": MESSAGES[lang]["file_too_large"]})
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
 
-        result_img = ImageProcessor.sketch_to_realistic(img, api_token=OPENAI_API_KEY, quality=quality)
-        _deduct_one_credit(user)
+        pool = _deduct_one_credit(user)
         db.commit()
+
+        try:
+            result_img = ImageProcessor.sketch_to_realistic(img, api_token=OPENAI_API_KEY, quality=quality)
+        except Exception:
+            _refund_one_credit(user, pool)
+            db.commit()
+            raise
 
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
@@ -586,9 +630,15 @@ async def edit_instruction(
             return JSONResponse(status_code=413, content={"error": MESSAGES[lang]["file_too_large"]})
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
 
-        result_img = ImageProcessor.edit_by_instruction(img, instruction, api_token=OPENAI_API_KEY, quality=quality)
-        _deduct_one_credit(user)
+        pool = _deduct_one_credit(user)
         db.commit()
+
+        try:
+            result_img = ImageProcessor.edit_by_instruction(img, instruction, api_token=OPENAI_API_KEY, quality=quality)
+        except Exception:
+            _refund_one_credit(user, pool)
+            db.commit()
+            raise
 
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
@@ -636,15 +686,21 @@ async def blend_endpoint(
         bg_img = Image.open(io.BytesIO(bg_contents)).convert("RGBA")
         bld_img = Image.open(io.BytesIO(bld_contents)).convert("RGBA")
 
-        result_img = ImageProcessor.blend_building(
-            background=bg_img, building=bld_img,
-            center_x=int(cx), center_y=int(cy),
-            width=int(width), height=int(height),
-            angle=angle, api_token=OPENAI_API_KEY,
-            is_sketch=is_sketch, quality=quality
-        )
-        _deduct_one_credit(user)
+        pool = _deduct_one_credit(user)
         db.commit()
+
+        try:
+            result_img = ImageProcessor.blend_building(
+                background=bg_img, building=bld_img,
+                center_x=int(cx), center_y=int(cy),
+                width=int(width), height=int(height),
+                angle=angle, api_token=OPENAI_API_KEY,
+                is_sketch=is_sketch, quality=quality
+            )
+        except Exception:
+            _refund_one_credit(user, pool)
+            db.commit()
+            raise
 
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
@@ -838,12 +894,12 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         event = stripe.Webhook.construct_event(
             payload, sig_header, STRIPE_WEBHOOK_SECRET
         )
-    except ValueError as e:
-        # 無効なペイロード
+    except ValueError:
         return JSONResponse(status_code=400, content={"error": "Invalid payload"})
-    except stripe.error.SignatureVerificationError as e:
-        # 無効な署名
-        return JSONResponse(status_code=400, content={"error": "Invalid signature"})
+    except Exception as e:
+        if "SignatureVerification" in type(e).__name__:
+            return JSONResponse(status_code=400, content={"error": "Invalid signature"})
+        raise
 
     # 1. 初回のサブスク開始時（または単発購入時）
     if event['type'] == 'checkout.session.completed':

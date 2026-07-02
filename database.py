@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
-import datetime
+import datetime as _dt
 import os
 from dotenv import load_dotenv
 
@@ -9,7 +9,8 @@ load_dotenv()
 
 # 環境変数からデータベースURLを取得
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./saas_database.db")
-print(f"--- Database Connecting to: {SQLALCHEMY_DATABASE_URL.split('@')[-1] if '@' in SQLALCHEMY_DATABASE_URL else SQLALCHEMY_DATABASE_URL} ---")
+_db_log = SQLALCHEMY_DATABASE_URL.split('@')[-1] if '@' in SQLALCHEMY_DATABASE_URL else "(local)"
+print(f"--- Database Connecting to: {_db_log} ---")
 
 # RenderのPostgreSQL URL対応
 if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
@@ -36,7 +37,7 @@ class User(Base):
     stripe_subscription_id = Column(String, nullable=True) # 解約制御用に保持
     last_session_id = Column(String, nullable=True)    # 二重付与防止用
     terms_agreed = Column(Boolean, default=False, nullable=False, server_default="0")
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: _dt.datetime.now(_dt.timezone.utc))
     
     images = relationship("GeneratedImage", back_populates="owner")
 
@@ -45,8 +46,8 @@ class GeneratedImage(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     file_path = Column(String)  # 例: /static/uploads/ab12cd.png
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    
+    created_at = Column(DateTime, default=lambda: _dt.datetime.now(_dt.timezone.utc))
+
     owner = relationship("User", back_populates="images")
 
 class ProcessedPaymentSession(Base):
@@ -56,7 +57,7 @@ class ProcessedPaymentSession(Base):
     firebase_uid = Column(String, nullable=False, index=True)
     item_name = Column(String, nullable=True)
     source = Column(String, nullable=False)  # verify-payment or webhook
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: _dt.datetime.now(_dt.timezone.utc))
 
 Base.metadata.create_all(bind=engine)
 

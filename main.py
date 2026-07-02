@@ -585,8 +585,12 @@ async def sketch_to_real(
         try:
             result_img = ImageProcessor.sketch_to_realistic(img, api_token=OPENAI_API_KEY, quality=quality)
         except Exception:
-            _refund_one_credit(user, pool)
-            db.commit()
+            try:
+                db.rollback()
+                _refund_one_credit(user, pool)
+                db.commit()
+            except Exception:
+                print(f"WARN: ticket refund failed for user {mask_uid(user.firebase_uid)}")
             raise
 
         b64 = pil_to_base64(result_img)
@@ -636,8 +640,12 @@ async def edit_instruction(
         try:
             result_img = ImageProcessor.edit_by_instruction(img, instruction, api_token=OPENAI_API_KEY, quality=quality)
         except Exception:
-            _refund_one_credit(user, pool)
-            db.commit()
+            try:
+                db.rollback()
+                _refund_one_credit(user, pool)
+                db.commit()
+            except Exception:
+                print(f"WARN: ticket refund failed for user {mask_uid(user.firebase_uid)}")
             raise
 
         b64 = pil_to_base64(result_img)
@@ -698,8 +706,12 @@ async def blend_endpoint(
                 is_sketch=is_sketch, quality=quality
             )
         except Exception:
-            _refund_one_credit(user, pool)
-            db.commit()
+            try:
+                db.rollback()
+                _refund_one_credit(user, pool)
+                db.commit()
+            except Exception:
+                print(f"WARN: ticket refund failed for user {mask_uid(user.firebase_uid)}")
             raise
 
         b64 = pil_to_base64(result_img)

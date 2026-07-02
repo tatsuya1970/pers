@@ -333,7 +333,7 @@ class ImageProcessor:
         # ── OpenAI でリアルに仕上げ ──
         if api_token:
             from openai import OpenAI
-            client = OpenAI(api_key=api_token, timeout=60.0)
+            client = OpenAI(api_key=api_token, timeout=120.0)
 
             # OpenAI API は最大 1024x1024 なので縮小して送る
             rough_for_api = rough.convert("RGB")

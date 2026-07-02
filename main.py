@@ -303,6 +303,13 @@ def _check_admin_rate_limit(ip: str) -> bool:
 def _record_admin_failure(ip: str):
     _admin_attempts.setdefault(ip, []).append(time.time())
 
+def _deduct_one_credit(user: User) -> None:
+    """AI処理成功後にチケットを1枚消費する。credits優先、なければaddon。"""
+    if user.credits > 0:
+        user.credits -= 1
+    else:
+        user.addon_credits = (user.addon_credits or 0) - 1
+
 def _record_payment_session(
     db: Session,
     session_id: str,
@@ -534,24 +541,9 @@ async def sketch_to_real(
             return JSONResponse(status_code=413, content={"error": MESSAGES[lang]["file_too_large"]})
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
 
-        # クレジット先払い（AI失敗時は返金）
-        deducted_from = "credits" if user.credits > 0 else "addon"
-        if deducted_from == "credits":
-            user.credits -= 1
-        else:
-            user.addon_credits -= 1
+        result_img = ImageProcessor.sketch_to_realistic(img, api_token=OPENAI_API_KEY, quality=quality)
+        _deduct_one_credit(user)
         db.commit()
-
-        try:
-            result_img = ImageProcessor.sketch_to_realistic(img, api_token=OPENAI_API_KEY, quality=quality)
-        except Exception as e:
-            # AI失敗 → クレジット返金
-            if deducted_from == "credits":
-                user.credits += 1
-            else:
-                user.addon_credits += 1
-            db.commit()
-            raise
 
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
@@ -594,22 +586,9 @@ async def edit_instruction(
             return JSONResponse(status_code=413, content={"error": MESSAGES[lang]["file_too_large"]})
         img = Image.open(io.BytesIO(contents)).convert("RGBA")
 
-        deducted_from = "credits" if user.credits > 0 else "addon"
-        if deducted_from == "credits":
-            user.credits -= 1
-        else:
-            user.addon_credits -= 1
+        result_img = ImageProcessor.edit_by_instruction(img, instruction, api_token=OPENAI_API_KEY, quality=quality)
+        _deduct_one_credit(user)
         db.commit()
-
-        try:
-            result_img = ImageProcessor.edit_by_instruction(img, instruction, api_token=OPENAI_API_KEY, quality=quality)
-        except Exception as e:
-            if deducted_from == "credits":
-                user.credits += 1
-            else:
-                user.addon_credits += 1
-            db.commit()
-            raise
 
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
@@ -657,28 +636,15 @@ async def blend_endpoint(
         bg_img = Image.open(io.BytesIO(bg_contents)).convert("RGBA")
         bld_img = Image.open(io.BytesIO(bld_contents)).convert("RGBA")
 
-        deducted_from = "credits" if user.credits > 0 else "addon"
-        if deducted_from == "credits":
-            user.credits -= 1
-        else:
-            user.addon_credits -= 1
+        result_img = ImageProcessor.blend_building(
+            background=bg_img, building=bld_img,
+            center_x=int(cx), center_y=int(cy),
+            width=int(width), height=int(height),
+            angle=angle, api_token=OPENAI_API_KEY,
+            is_sketch=is_sketch, quality=quality
+        )
+        _deduct_one_credit(user)
         db.commit()
-
-        try:
-            result_img = ImageProcessor.blend_building(
-                background=bg_img, building=bld_img,
-                center_x=int(cx), center_y=int(cy),
-                width=int(width), height=int(height),
-                angle=angle, api_token=OPENAI_API_KEY,
-                is_sketch=is_sketch, quality=quality
-            )
-        except Exception as e:
-            if deducted_from == "credits":
-                user.credits += 1
-            else:
-                user.addon_credits += 1
-            db.commit()
-            raise
 
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}

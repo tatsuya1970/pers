@@ -58,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
             msg_logout_confirm: "ログアウトしますか？\n現在画面に表示されている画像は、ログアウトすると消去されます。\nよろしいですか？",
             msg_login_required: "ログインが必要です。",
             msg_network_error: "通信エラー",
-            msg_request_timeout: "処理がタイムアウトしました（3分）。\n\n画像サイズが大きい場合は時間がかかることがあります。\nページを再読み込みしてチケット数をご確認ください。消費されていた場合はお問い合わせください。",
+            msg_request_timeout: "処理がタイムアウトしました（3分）。\n\nサーバー側の処理がまだ完了していない場合、チケットは消費されません。\nページを再読み込みしてチケット数をご確認ください。",
             msg_plan_changed: "{plan}プランに変更しました。\n\n※ 差額は次回の請求日にまとめて精算されます。",
             msg_plan_change_failed: "変更に失敗しました。",
             msg_change_to_free_confirm: "無料プランに変更しますか？\n\n⚠️ チケットが減る可能性があります。無料プランの上限（10枚）を超えている場合、10枚にリセットされます。\n\n※ 現在の契約期間が終了するまで、Stripeによる課金は継続されます。\n期間終了後に自動更新が停止し、無料プランに切り替わります。",
@@ -132,7 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
             msg_logout_confirm: "Are you sure you want to log out?\nThe image currently displayed on the screen will be cleared upon logout. Continue?",
             msg_login_required: "Login required.",
             msg_network_error: "Communication error",
-            msg_request_timeout: "The request timed out (3 minutes).\n\nLarge images may take longer to process.\nPlease reload the page to check your ticket balance. If a ticket was consumed, please contact support.",
+            msg_request_timeout: "The request timed out (3 minutes).\n\nIf processing had not finished on the server, no ticket was consumed.\nPlease reload the page to check your ticket balance.",
             msg_plan_changed: "Changed to {plan} plan.\n\n* The price difference will be adjusted on your next billing cycle.",
             msg_plan_change_failed: "Failed to change plan.",
             msg_change_to_free_confirm: "Are you sure you want to change to the Free plan?\n\n⚠️ Your tickets may be reduced. If your tickets exceed the Free plan limit (10), they will be reset to 10.\n\n* Your Stripe subscription billing will continue until the end of the current billing cycle. It will automatically stop renewing and downgrade to Free at that point.",
@@ -222,6 +222,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.documentElement.lang = currentLang;
 
     const AI_REQUEST_TIMEOUT_MS = 180000;
+    const UPLOAD_MAX_EDGE = 2048;
 
     function getApiErrorMessage(err) {
         if (err?.name === 'AbortError') {
@@ -330,6 +331,37 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const dataUrlToBlob = async (url) => (await fetch(url)).blob();
+
+    function resizeCanvasForUpload(sourceCanvas, maxEdge = UPLOAD_MAX_EDGE) {
+        const w = sourceCanvas.width;
+        const h = sourceCanvas.height;
+        const maxDim = Math.max(w, h);
+        if (!maxDim || maxDim <= maxEdge) {
+            return { canvas: sourceCanvas, scale: 1 };
+        }
+        const scale = maxEdge / maxDim;
+        const out = document.createElement('canvas');
+        out.width = Math.max(1, Math.round(w * scale));
+        out.height = Math.max(1, Math.round(h * scale));
+        out.getContext('2d').drawImage(sourceCanvas, 0, 0, out.width, out.height);
+        return { canvas: out, scale };
+    }
+
+    async function resizeBlobForUpload(blob, maxEdge = UPLOAD_MAX_EDGE, mime = 'image/jpeg', quality = 0.85) {
+        const bitmap = await createImageBitmap(blob);
+        const maxDim = Math.max(bitmap.width, bitmap.height);
+        if (!maxDim || maxDim <= maxEdge) {
+            bitmap.close();
+            return blob;
+        }
+        const scale = maxEdge / maxDim;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        bitmap.close();
+        return new Promise((resolve) => canvas.toBlob(resolve, mime, quality));
+    }
 
     // --- トースト通知 ---
     function showToast(message, duration = 2800) {
@@ -559,7 +591,8 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const multiplier = 1 / fCanvas.getZoom();
                 const dataUrl = fCanvas.toDataURL({ format: 'png', multiplier: multiplier });
-                const blob = await dataUrlToBlob(dataUrl);
+                let blob = await dataUrlToBlob(dataUrl);
+                blob = await resizeBlobForUpload(blob);
 
                 const quality = document.getElementById('quality-select')?.value || 'high';
                 const formData = new FormData();
@@ -669,8 +702,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 bgTmp.width = bgEl.naturalWidth || bgEl.width;
                 bgTmp.height = bgEl.naturalHeight || bgEl.height;
                 bgTmp.getContext('2d').drawImage(bgEl, 0, 0);
-                // 背景はJPEGで送信（写真のため透明度不要、ファイルサイズ圧縮）
-                const bgBlob = await new Promise(resolve => bgTmp.toBlob(resolve, 'image/jpeg', 0.85));
+                const bgScaled = resizeCanvasForUpload(bgTmp);
+                const bgBlob = await new Promise(resolve => bgScaled.canvas.toBlob(resolve, 'image/jpeg', 0.85));
 
                 // 建物画像をblobとして取得（オリジナルサイズ）
                 const bldEl = obj.getElement();
@@ -678,13 +711,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 bldTmp.width = bldEl.naturalWidth || bldEl.width;
                 bldTmp.height = bldEl.naturalHeight || bldEl.height;
                 bldTmp.getContext('2d').drawImage(bldEl, 0, 0);
-                const bldBlob = await new Promise(resolve => bldTmp.toBlob(resolve, 'image/png'));
+                const bldScaled = resizeCanvasForUpload(bldTmp);
+                const bldBlob = await new Promise(resolve => bldScaled.canvas.toBlob(resolve, 'image/png'));
 
-                // 配置情報（ロジカル座標 = 背景画像座標）
-                const cx = obj.left;
-                const cy = obj.top;
-                const w = obj.getScaledWidth();
-                const h = obj.getScaledHeight();
+                // 配置情報（背景画像座標。縮小した場合は同じ倍率で合わせる）
+                const coordScale = bgScaled.scale;
+                const cx = obj.left * coordScale;
+                const cy = obj.top * coordScale;
+                const w = obj.getScaledWidth() * coordScale;
+                const h = obj.getScaledHeight() * coordScale;
                 const angle = obj.angle || 0;
                 const isSketch = !!obj.isSketchLayer;
 

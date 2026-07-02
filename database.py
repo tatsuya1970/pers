@@ -49,6 +49,15 @@ class GeneratedImage(Base):
     
     owner = relationship("User", back_populates="images")
 
+class ProcessedPaymentSession(Base):
+    __tablename__ = "processed_payment_sessions"
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, unique=True, nullable=False, index=True)
+    firebase_uid = Column(String, nullable=False, index=True)
+    item_name = Column(String, nullable=True)
+    source = Column(String, nullable=False)  # verify-payment or webhook
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
 Base.metadata.create_all(bind=engine)
 
 def get_db():

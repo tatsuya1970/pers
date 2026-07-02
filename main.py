@@ -3,7 +3,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from database import get_db, User, GeneratedImage
+from sqlalchemy.exc import IntegrityError
+from database import get_db, User, GeneratedImage, ProcessedPaymentSession
 from dotenv import load_dotenv
 import os
 import io
@@ -64,6 +65,7 @@ MESSAGES = {
         "checkout_failed": "決済セッションの作成に失敗しました。しばらく経ってから再度お試しください。",
         "invalid_plan": "無効なプランです",
         "no_active_subscription": "有効なサブスクリプションがありません",
+        "plan_change_failed": "プラン変更に失敗しました。しばらく経ってから再度お試しください。",
         "downgrade_success": "無料プランに変更されました。現在の期間終了後に自動更新が停止します。",
     },
     "en": {
@@ -81,6 +83,7 @@ MESSAGES = {
         "checkout_failed": "Failed to create checkout session. Please try again later.",
         "invalid_plan": "Invalid plan.",
         "no_active_subscription": "No active subscription found.",
+        "plan_change_failed": "Failed to change plan. Please try again later.",
         "downgrade_success": "Downgraded to Free plan. Automatic renewal will stop at the end of the current billing period.",
     }
 }
@@ -88,6 +91,15 @@ MESSAGES = {
 from logic.image_processor import ImageProcessor
 
 app = FastAPI(title="Pers Image SaaS - 建物パース合成")
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    return response
 
 # ── メンテナンスモード（ファイルで永続化：再起動後も維持） ──
 MAINTENANCE_FLAG_FILE = "/tmp/maintenance.flag"
@@ -291,6 +303,34 @@ def _check_admin_rate_limit(ip: str) -> bool:
 def _record_admin_failure(ip: str):
     _admin_attempts.setdefault(ip, []).append(time.time())
 
+def _record_payment_session(
+    db: Session,
+    session_id: str,
+    firebase_uid: str,
+    item_name: str,
+    source: str,
+) -> bool:
+    """決済session_idをユニーク制約で先に確保する。Falseなら処理済み。"""
+    try:
+        db.add(ProcessedPaymentSession(
+            session_id=session_id,
+            firebase_uid=firebase_uid,
+            item_name=item_name,
+            source=source,
+        ))
+        db.flush()
+        return True
+    except IntegrityError:
+        db.rollback()
+        return False
+
+def _metadata_get(metadata, key: str, default=None):
+    if not metadata:
+        return default
+    if isinstance(metadata, dict):
+        return metadata.get(key, default)
+    return getattr(metadata, key, default)
+
 ERROR_COOLDOWN_SECONDS = 1800  # 同じエラーメールは30分に1度のみ送信
 last_error_times = {}
 
@@ -390,7 +430,7 @@ async def sync_user(db: Session = Depends(get_db), authorization: str = Header(N
         return JSONResponse(status_code=401, content={"error": "Unauthorized"})
     id_token = authorization.split(" ", 1)[1]
     try:
-        decoded = firebase_auth.verify_id_token(id_token)
+        decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
         firebase_uid = decoded["uid"]
     except Exception as e:
         print(f"sync_user token error: {e}")
@@ -411,7 +451,7 @@ async def agree_terms(db: Session = Depends(get_db), authorization: str = Header
         return JSONResponse(status_code=401, content={"error": "Unauthorized"})
     id_token = authorization.split(" ", 1)[1]
     try:
-        decoded = firebase_auth.verify_id_token(id_token)
+        decoded = firebase_auth.verify_id_token(id_token, check_revoked=True)
         firebase_uid = decoded["uid"]
     except Exception:
         return JSONResponse(status_code=401, content={"error": "Unauthorized"})
@@ -661,6 +701,8 @@ async def match_color_endpoint(
     try:
         bg_contents = await bg_file.read()
         bld_contents = await bld_file.read()
+        if len(bg_contents) > 10 * 1024 * 1024 or len(bld_contents) > 10 * 1024 * 1024:
+            return JSONResponse(status_code=413, content={"error": MESSAGES[lang]["file_too_large"]})
         bg_img = Image.open(io.BytesIO(bg_contents)).convert("RGBA")
         bld_img = Image.open(io.BytesIO(bld_contents)).convert("RGBA")
         
@@ -707,14 +749,21 @@ async def verify_payment(request: Request, user: User = Depends(get_current_user
         return {"status": "pending"}
 
     _meta = session.metadata
-    credits_to_add = int(getattr(_meta, 'credits_to_add', None) or 0)
-    item_name = getattr(_meta, 'item_name', None)
+    credits_to_add = int(_metadata_get(_meta, 'credits_to_add', 0) or 0)
+    item_name = _metadata_get(_meta, 'item_name')
 
-    # 二重付与防止: session_idをグローバルに確認（他ユーザーによる処理済みも含む）
-    already_processed = db.query(User).filter(
-        User.last_session_id == session_id
+    # 二重付与防止: 専用テーブルのユニーク制約でsession_idをグローバルに処理済み管理する。
+    # 旧last_session_idも互換のため参照し、既存処理済みsessionの再付与を防ぐ。
+    legacy_processed = db.query(User).filter(User.last_session_id == session_id).first()
+    existing_processed = db.query(ProcessedPaymentSession).filter(
+        ProcessedPaymentSession.session_id == session_id
     ).first()
-    if already_processed:
+    if legacy_processed or existing_processed:
+        addon = user.addon_credits if user.addon_credits is not None else 0
+        return {"status": "already_processed", "credits": user.credits, "addon_credits": addon}
+
+    if not _record_payment_session(db, session_id, user.firebase_uid, item_name, "verify-payment"):
+        db.refresh(user)
         addon = user.addon_credits if user.addon_credits is not None else 0
         return {"status": "already_processed", "credits": user.credits, "addon_credits": addon}
 
@@ -835,18 +884,24 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         session = event['data']['object']
         firebase_uid = getattr(session, 'client_reference_id', None)
         _meta = getattr(session, 'metadata', None)
-        credits_to_add = int(getattr(_meta, 'credits_to_add', None) or 0)
-        item_name = getattr(_meta, 'item_name', None)
+        credits_to_add = int(_metadata_get(_meta, 'credits_to_add', 0) or 0)
+        item_name = _metadata_get(_meta, 'item_name')
 
         print(f"Webhook (session.completed) - uid: {mask_uid(firebase_uid)}, item: {item_name}")
 
         if firebase_uid:
             user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
             if user:
-                # 二重付与防止: verify-payment で処理済みならスキップ
                 session_id = getattr(session, 'id', None)
-                if session_id and user.last_session_id == session_id:
+                if not session_id:
+                    print("ERROR: checkout.session.completed without session id")
+                elif (
+                    user.last_session_id == session_id or
+                    db.query(ProcessedPaymentSession).filter(ProcessedPaymentSession.session_id == session_id).first()
+                ):
                     print(f"SKIPPED: session {session_id} already processed by verify-payment")
+                elif not _record_payment_session(db, session_id, firebase_uid, item_name, "webhook"):
+                    print(f"SKIPPED: session {session_id} already processed concurrently")
                 else:
                     if item_name in ('lite', 'plus', 'max'):
                         # サブスク初回: クレジットをリセット付与・プラン更新
@@ -888,7 +943,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         try:
             subscription = stripe.Subscription.retrieve(sub_id)
             _sub_meta = getattr(subscription, 'metadata', None)
-            firebase_uid = getattr(_sub_meta, 'firebase_uid', None)
+            firebase_uid = _metadata_get(_sub_meta, 'firebase_uid')
 
             if firebase_uid:
                 user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
@@ -954,7 +1009,7 @@ async def change_plan(request: Request, user: User = Depends(get_current_user), 
         return {"status": "success", "plan": new_plan, "credits": config["credits"]}
     except Exception as e:
         print(f"change-plan error: {e}")
-        return JSONResponse(status_code=400, content={"error": str(e)})
+        return JSONResponse(status_code=400, content={"error": MESSAGES[lang]["plan_change_failed"]})
 
 
 @app.post("/api/user/downgrade")

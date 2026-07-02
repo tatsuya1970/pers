@@ -597,7 +597,7 @@ class TestScenario07_PlanChangeAndDowngrade:
         assert resp.json()["status"] == "success"
         db.refresh(user)
         assert user.plan == "free"
-        assert user.credits == 25  # クレジットは期間終了まで保持
+        assert user.credits == 10  # 無料プラン上限（10枚）を超える分は即時リセット（UI/利用規約と一致）
 
     async def test_Stripe失敗時のプラン変更はDB更新されない(self, db):
         """

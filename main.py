@@ -123,7 +123,7 @@ async def security_headers_middleware(request: Request, call_next):
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; "
         "font-src 'self' data: https://fonts.gstatic.com; "
         "img-src 'self' data: blob: https://*.googleusercontent.com; "
-        "connect-src 'self' data: blob: https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://apis.google.com https://*.firebaseio.com; "
+        "connect-src 'self' data: blob: https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://www.gstatic.com https://apis.google.com https://*.firebaseio.com; "
         "frame-src https://accounts.google.com https://*.firebaseapp.com https://*.google.com;"
     )
     return response

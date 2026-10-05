@@ -549,6 +549,7 @@ class TestScenario06_WebhookAndVerifyPaymentCoordination:
         db.add(user); db.commit(); db.refresh(user)
 
         invoice = MagicMock()
+        invoice.id = "in_renewal_001"
         invoice.subscription = "sub_renewal_001"
         invoice.billing_reason = "subscription_cycle"
         event = {"type": "invoice.payment_succeeded", "data": {"object": invoice}}

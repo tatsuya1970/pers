@@ -742,6 +742,7 @@ class TestStripeWebhook:
 
     async def test_invoice_subscription_renewalでクレジットリセット(self, db, paid_user):
         invoice = MagicMock()
+        invoice.id = "in_renewal_001"
         invoice.subscription = "sub_test_123"
         invoice.billing_reason = "subscription_cycle"
         event = {"type": "invoice.payment_succeeded", "data": {"object": invoice}}
@@ -765,6 +766,7 @@ class TestStripeWebhook:
 
     async def test_invoice_Stripe取得失敗は500(self, db):
         invoice = MagicMock()
+        invoice.id = "in_bad_001"
         invoice.subscription = "sub_bad"
         invoice.billing_reason = "subscription_cycle"
         event = {"type": "invoice.payment_succeeded", "data": {"object": invoice}}

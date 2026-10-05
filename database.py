@@ -50,6 +50,15 @@ class GeneratedImage(Base):
 
     owner = relationship("User", back_populates="images")
 
+class ProcessedInvoice(Base):
+    """月次更新 invoice の処理済み記録（webhook 再配送による二重リセット防止）"""
+    __tablename__ = "processed_invoices"
+    id = Column(Integer, primary_key=True, index=True)
+    invoice_id = Column(String, unique=True, nullable=False, index=True)
+    firebase_uid = Column(String, nullable=False, index=True)
+    subscription_id = Column(String, nullable=True)
+    created_at = Column(DateTime, default=lambda: _dt.datetime.now(_dt.timezone.utc))
+
 class ProcessedPaymentSession(Base):
     __tablename__ = "processed_payment_sessions"
     id = Column(Integer, primary_key=True, index=True)

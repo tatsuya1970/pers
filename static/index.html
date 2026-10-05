@@ -373,7 +373,7 @@
                                                             alert(INLINE_I18N.downgrade_accepted);
                                                             location.reload();
                                                         } else {
-                                                            alert(INLINE_I18N.failed_to_change);
+                                                            alert(d.error || INLINE_I18N.failed_to_change);
                                                         }
                                                     });
                                             }

@@ -58,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
             msg_logout_confirm: "ログアウトしますか？\n現在画面に表示されている画像は、ログアウトすると消去されます。\nよろしいですか？",
             msg_login_required: "ログインが必要です。",
             msg_network_error: "通信エラー",
-            msg_request_timeout: "処理がタイムアウトしました（3分）。\n\nサーバー側の処理がまだ完了していない場合、チケットは消費されません。\nページを再読み込みしてチケット数をご確認ください。",
+            msg_request_timeout: "処理がタイムアウトしました（3分）。\n\nサーバー側で処理が失敗した場合、チケットは自動的に返却されます。\n処理が完了していた場合はチケットが消費されている可能性があります。\nページを再読み込みしてチケット数をご確認ください。",
             msg_plan_changed: "{plan}プランに変更しました。\n\n※ 差額は次回の請求日にまとめて精算されます。",
             msg_plan_change_failed: "変更に失敗しました。",
             msg_change_to_free_confirm: "無料プランに変更しますか？\n\n⚠️ チケットが減る可能性があります。無料プランの上限（10枚）を超えている場合、10枚にリセットされます。\n\n※ 現在の契約期間が終了するまで、Stripeによる課金は継続されます。\n期間終了後に自動更新が停止し、無料プランに切り替わります。",
@@ -132,7 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
             msg_logout_confirm: "Are you sure you want to log out?\nThe image currently displayed on the screen will be cleared upon logout. Continue?",
             msg_login_required: "Login required.",
             msg_network_error: "Communication error",
-            msg_request_timeout: "The request timed out (3 minutes).\n\nIf processing had not finished on the server, no ticket was consumed.\nPlease reload the page to check your ticket balance.",
+            msg_request_timeout: "The request timed out (3 minutes).\n\nIf the server-side processing failed, your ticket is refunded automatically.\nIf it had completed, the ticket may have been consumed.\nPlease reload the page to check your ticket balance.",
             msg_plan_changed: "Changed to {plan} plan.\n\n* The price difference will be adjusted on your next billing cycle.",
             msg_plan_change_failed: "Failed to change plan.",
             msg_change_to_free_confirm: "Are you sure you want to change to the Free plan?\n\n⚠️ Your tickets may be reduced. If your tickets exceed the Free plan limit (10), they will be reset to 10.\n\n* Your Stripe subscription billing will continue until the end of the current billing cycle. It will automatically stop renewing and downgrade to Free at that point.",
@@ -830,7 +830,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify({ plan: params.plan })
                 });
                 const data = await res.json();
-                if (data.status === 'success') {
+                if (data.status === 'success' && data.changed === false) {
+                    // 同一プラン: サーバー側は何も変更していない
+                    alert(data.message || I18N_DICT[currentLang].msg_plan_change_failed);
+                } else if (data.status === 'success') {
                     const label = params.plan.charAt(0).toUpperCase() + params.plan.slice(1);
                     alert(I18N_DICT[currentLang].msg_plan_changed.replace('{plan}', label));
                     location.reload();

@@ -2,17 +2,20 @@ from fastapi import FastAPI, File, UploadFile, Form, Header, Depends, HTTPExcept
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.concurrency import run_in_threadpool
 import hmac
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from database import get_db, User, GeneratedImage, ProcessedPaymentSession
+from sqlalchemy import update, func
+from database import get_db, User, GeneratedImage, ProcessedPaymentSession, ProcessedInvoice
 from dotenv import load_dotenv
 import os
 import io
 import base64
 import uvicorn
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
+import math
 import smtplib
 from email.mime.text import MIMEText
 import threading
@@ -70,6 +73,11 @@ MESSAGES = {
         "no_active_subscription": "有効なサブスクリプションがありません",
         "plan_change_failed": "プラン変更に失敗しました。しばらく経ってから再度お試しください。",
         "downgrade_success": "無料プランに変更されました。現在の期間終了後に自動更新が停止します。",
+        "downgrade_failed": "無料プランへの変更に失敗しました。しばらく経ってから再度お試しください。",
+        "plan_unchanged": "すでにこのプランをご利用中です。",
+        "image_too_large": "画像の解像度が大きすぎます（上限2400万画素）",
+        "invalid_image": "画像を読み込めませんでした。PNG/JPEG形式の画像を指定してください。",
+        "invalid_params": "パラメータが不正です。",
     },
     "en": {
         "server_error": "We are very sorry, but the service is currently unavailable. Please try again later.",
@@ -88,6 +96,11 @@ MESSAGES = {
         "no_active_subscription": "No active subscription found.",
         "plan_change_failed": "Failed to change plan. Please try again later.",
         "downgrade_success": "Downgraded to Free plan. Automatic renewal will stop at the end of the current billing period.",
+        "downgrade_failed": "Failed to change to the Free plan. Please try again later.",
+        "plan_unchanged": "You are already on this plan.",
+        "image_too_large": "Image resolution is too large (maximum 24 megapixels).",
+        "invalid_image": "Could not read the image. Please use a PNG or JPEG file.",
+        "invalid_params": "Invalid parameters.",
     }
 }
 
@@ -166,6 +179,17 @@ MAINTENANCE_HTML = """<!DOCTYPE html>
   </div>
 </body>
 </html>"""
+
+@app.middleware("http")
+async def request_size_middleware(request: Request, call_next):
+    """Content-Length が上限を超える POST は multipart 解析前に 413 で拒否する。"""
+    if request.method == "POST":
+        cl = request.headers.get("content-length")
+        if cl and cl.isdigit() and int(cl) > MAX_REQUEST_BYTES:
+            accept_lang = request.headers.get("accept-language", "")
+            lang = "en" if "en" in accept_lang.lower() else "ja"
+            return JSONResponse(status_code=413, content={"error": MESSAGES[lang]["file_too_large"]})
+    return await call_next(request)
 
 @app.middleware("http")
 async def maintenance_middleware(request: Request, call_next):
@@ -303,6 +327,51 @@ _admin_attempts: dict = {}
 _ADMIN_RATE_LIMIT_MAX = 5
 _ADMIN_RATE_LIMIT_WINDOW = 900  # 15分
 
+# ── アップロード・画像サイズ上限（メモリ保護） ──
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024      # 1ファイルあたり 10MB
+MAX_REQUEST_BYTES = 25 * 1024 * 1024     # リクエスト全体（blend は2ファイル + フォーム）
+MAX_IMAGE_PIXELS = 24_000_000            # 約 6000×4000px。デコード後 RGBA で約 96MB
+MAX_BLEND_DIMENSION = 8192               # 建物の width/height の絶対上限
+
+class ImageValidationError(Exception):
+    """アップロード画像の検証エラー（HTTPステータスとメッセージキーを持つ）"""
+    def __init__(self, status_code: int, msg_key: str):
+        super().__init__(msg_key)
+        self.status_code = status_code
+        self.msg_key = msg_key
+
+async def _read_upload_limited(file: UploadFile, max_bytes: int = None) -> bytes:
+    """アップロードを分割読み込みし、上限超過なら読み切らずに 413 相当のエラーを投げる。"""
+    if max_bytes is None:
+        max_bytes = MAX_UPLOAD_BYTES
+    buf = bytearray()
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        buf += chunk
+        if len(buf) > max_bytes:
+            raise ImageValidationError(413, "file_too_large")
+    return bytes(buf)
+
+def _open_upload_image(contents: bytes) -> Image.Image:
+    """バイト列を検証して RGBA の PIL 画像にする。画素数超過・不正データは ImageValidationError。"""
+    try:
+        img = Image.open(io.BytesIO(contents))
+        w, h = img.size  # ヘッダのみ読む（デコードはまだ行わない）
+    except Image.DecompressionBombError:
+        raise ImageValidationError(413, "image_too_large")
+    except (UnidentifiedImageError, OSError, ValueError):
+        raise ImageValidationError(400, "invalid_image")
+    if w * h > MAX_IMAGE_PIXELS:
+        raise ImageValidationError(413, "image_too_large")
+    try:
+        return img.convert("RGBA")
+    except Image.DecompressionBombError:
+        raise ImageValidationError(413, "image_too_large")
+    except (OSError, ValueError, SyntaxError):
+        raise ImageValidationError(400, "invalid_image")
+
 # AI/課金系エンドポイントのユーザーIDベースレート制限
 _rate_limit_store: dict = {}
 _RATE_LIMIT_WINDOW = 60  # 1分
@@ -330,21 +399,41 @@ def _check_admin_rate_limit(ip: str) -> bool:
 def _record_admin_failure(ip: str):
     _admin_attempts.setdefault(ip, []).append(time.time())
 
-def _deduct_one_credit(user: User) -> str:
-    """チケットを1枚消費する。credits優先、なければaddon。戻り値は引き落とし元 ('credits'|'addon')。"""
-    if user.credits > 0:
-        user.credits -= 1
-        return "credits"
+def _deduct_one_credit(db: Session, user: User):
+    """チケットを1枚、条件付きUPDATEで原子的に消費する（並行リクエストでも残高を壊さない）。
+    credits優先、なければaddon。戻り値は引き落とし元 ('credits'|'addon')。残高なしなら None。
+    この関数内で commit する。"""
+    res = db.execute(
+        update(User)
+        .where(User.id == user.id, User.credits > 0)
+        .values(credits=User.credits - 1)
+        .execution_options(synchronize_session=False)
+    )
+    if res.rowcount == 1:
+        pool = "credits"
     else:
-        user.addon_credits = (user.addon_credits or 0) - 1
-        return "addon"
+        res = db.execute(
+            update(User)
+            .where(User.id == user.id, User.addon_credits > 0)
+            .values(addon_credits=User.addon_credits - 1)
+            .execution_options(synchronize_session=False)
+        )
+        pool = "addon" if res.rowcount == 1 else None
+    db.commit()
+    db.refresh(user)
+    return pool
 
-def _refund_one_credit(user: User, pool: str) -> None:
-    """AI処理失敗時にチケットを1枚返却する。"""
-    if pool == "addon":
-        user.addon_credits = (user.addon_credits or 0) + 1
-    else:
-        user.credits += 1
+def _refund_one_credit(db: Session, user: User, pool: str) -> None:
+    """AI処理失敗時にチケットを1枚返却する（原子的な加算、この関数内で commit する）。"""
+    col = User.addon_credits if pool == "addon" else User.credits
+    db.execute(
+        update(User)
+        .where(User.id == user.id)
+        .values({col: func.coalesce(col, 0) + 1})
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    db.refresh(user)
 
 def _record_payment_session(
     db: Session,
@@ -366,6 +455,24 @@ def _record_payment_session(
     except IntegrityError:
         db.rollback()
         return False
+
+def _record_processed_invoice(db: Session, invoice_id: str, firebase_uid: str, subscription_id: str) -> bool:
+    """月次更新 invoice をユニーク制約で先に確保する。Falseなら処理済み（再配送）。"""
+    try:
+        db.add(ProcessedInvoice(
+            invoice_id=invoice_id,
+            firebase_uid=firebase_uid,
+            subscription_id=subscription_id,
+        ))
+        db.flush()
+        return True
+    except IntegrityError:
+        db.rollback()
+        return False
+
+def _is_stripe_resource_missing(e: Exception) -> bool:
+    """Stripe側に対象が存在しない（解約済み等）エラーか判定する。"""
+    return getattr(e, "code", None) == "resource_missing"
 
 def _metadata_get(metadata, key: str, default=None):
     if not metadata:
@@ -574,27 +681,29 @@ async def sketch_to_real(
         quality = "medium"
 
     try:
-        contents = await file.read()
-        if len(contents) > 10 * 1024 * 1024:
-            return JSONResponse(status_code=413, content={"error": MESSAGES[lang]["file_too_large"]})
-        img = Image.open(io.BytesIO(contents)).convert("RGBA")
+        contents = await _read_upload_limited(file)
+        img = await run_in_threadpool(_open_upload_image, contents)
+        del contents
 
-        pool = _deduct_one_credit(user)
-        db.commit()
+        pool = _deduct_one_credit(db, user)
+        if pool is None:
+            return JSONResponse(status_code=402, content={"error": MESSAGES[lang]["insufficient_tickets"]})
 
         try:
-            result_img = ImageProcessor.sketch_to_realistic(img, api_token=OPENAI_API_KEY, quality=quality)
+            # 同期のAI通信をスレッドプールへ逃がし、イベントループを塞がない
+            result_img = await run_in_threadpool(ImageProcessor.sketch_to_realistic, img, api_token=OPENAI_API_KEY, quality=quality)
         except Exception:
             try:
                 db.rollback()
-                _refund_one_credit(user, pool)
-                db.commit()
+                _refund_one_credit(db, user, pool)
             except Exception:
                 print(f"WARN: ticket refund failed for user {mask_uid(user.firebase_uid)}")
             raise
 
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
+    except ImageValidationError as ve:
+        return JSONResponse(status_code=ve.status_code, content={"error": MESSAGES[lang][ve.msg_key]})
     except Exception as e:
         base_err = str(e)
         err_msg = traceback.format_exc()
@@ -629,27 +738,28 @@ async def edit_instruction(
         quality = "medium"
 
     try:
-        contents = await file.read()
-        if len(contents) > 10 * 1024 * 1024:
-            return JSONResponse(status_code=413, content={"error": MESSAGES[lang]["file_too_large"]})
-        img = Image.open(io.BytesIO(contents)).convert("RGBA")
+        contents = await _read_upload_limited(file)
+        img = await run_in_threadpool(_open_upload_image, contents)
+        del contents
 
-        pool = _deduct_one_credit(user)
-        db.commit()
+        pool = _deduct_one_credit(db, user)
+        if pool is None:
+            return JSONResponse(status_code=402, content={"error": MESSAGES[lang]["insufficient_tickets"]})
 
         try:
-            result_img = ImageProcessor.edit_by_instruction(img, instruction, api_token=OPENAI_API_KEY, quality=quality)
+            result_img = await run_in_threadpool(ImageProcessor.edit_by_instruction, img, instruction, api_token=OPENAI_API_KEY, quality=quality)
         except Exception:
             try:
                 db.rollback()
-                _refund_one_credit(user, pool)
-                db.commit()
+                _refund_one_credit(db, user, pool)
             except Exception:
                 print(f"WARN: ticket refund failed for user {mask_uid(user.firebase_uid)}")
             raise
 
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
+    except ImageValidationError as ve:
+        return JSONResponse(status_code=ve.status_code, content={"error": MESSAGES[lang][ve.msg_key]})
     except Exception as e:
         base_err = str(e)
         err_msg = traceback.format_exc()
@@ -686,19 +796,29 @@ async def blend_endpoint(
     if quality not in ("high", "medium", "low"):
         quality = "medium"
 
-    try:
-        bg_contents = await bg_file.read()
-        bld_contents = await bld_file.read()
-        if len(bg_contents) > 10 * 1024 * 1024 or len(bld_contents) > 10 * 1024 * 1024:
-            return JSONResponse(status_code=413, content={"error": MESSAGES[lang]["file_too_large"]})
-        bg_img = Image.open(io.BytesIO(bg_contents)).convert("RGBA")
-        bld_img = Image.open(io.BytesIO(bld_contents)).convert("RGBA")
+    # 数値パラメータの検証（NaN/inf・負値・極端な寸法はメモリ爆発や例外の原因）
+    if not all(math.isfinite(v) for v in (cx, cy, width, height, angle)) or width <= 0 or height <= 0:
+        return JSONResponse(status_code=400, content={"error": MESSAGES[lang]["invalid_params"]})
 
-        pool = _deduct_one_credit(user)
-        db.commit()
+    try:
+        bg_contents = await _read_upload_limited(bg_file)
+        bld_contents = await _read_upload_limited(bld_file)
+        bg_img = await run_in_threadpool(_open_upload_image, bg_contents)
+        bld_img = await run_in_threadpool(_open_upload_image, bld_contents)
+        del bg_contents, bld_contents
+
+        # 建物サイズは背景の長辺の2倍まで（かつ絶対上限）
+        max_dim = min(MAX_BLEND_DIMENSION, 2 * max(bg_img.size))
+        if width > max_dim or height > max_dim:
+            return JSONResponse(status_code=400, content={"error": MESSAGES[lang]["invalid_params"]})
+
+        pool = _deduct_one_credit(db, user)
+        if pool is None:
+            return JSONResponse(status_code=402, content={"error": MESSAGES[lang]["insufficient_tickets"]})
 
         try:
-            result_img = ImageProcessor.blend_building(
+            result_img = await run_in_threadpool(
+                ImageProcessor.blend_building,
                 background=bg_img, building=bld_img,
                 center_x=int(cx), center_y=int(cy),
                 width=int(width), height=int(height),
@@ -708,14 +828,15 @@ async def blend_endpoint(
         except Exception:
             try:
                 db.rollback()
-                _refund_one_credit(user, pool)
-                db.commit()
+                _refund_one_credit(db, user, pool)
             except Exception:
                 print(f"WARN: ticket refund failed for user {mask_uid(user.firebase_uid)}")
             raise
 
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
+    except ImageValidationError as ve:
+        return JSONResponse(status_code=ve.status_code, content={"error": MESSAGES[lang][ve.msg_key]})
     except Exception as e:
         base_err = str(e)
         err_msg = traceback.format_exc()
@@ -733,16 +854,17 @@ async def match_color_endpoint(
     if not user:
         return JSONResponse(status_code=401, content={"error": MESSAGES[lang]["login_required"]})
     try:
-        bg_contents = await bg_file.read()
-        bld_contents = await bld_file.read()
-        if len(bg_contents) > 10 * 1024 * 1024 or len(bld_contents) > 10 * 1024 * 1024:
-            return JSONResponse(status_code=413, content={"error": MESSAGES[lang]["file_too_large"]})
-        bg_img = Image.open(io.BytesIO(bg_contents)).convert("RGBA")
-        bld_img = Image.open(io.BytesIO(bld_contents)).convert("RGBA")
-        
-        result_img = ImageProcessor.match_color_tone(bld_img, bg_img)
+        bg_contents = await _read_upload_limited(bg_file)
+        bld_contents = await _read_upload_limited(bld_file)
+        bg_img = await run_in_threadpool(_open_upload_image, bg_contents)
+        bld_img = await run_in_threadpool(_open_upload_image, bld_contents)
+        del bg_contents, bld_contents
+
+        result_img = await run_in_threadpool(ImageProcessor.match_color_tone, bld_img, bg_img)
         b64 = pil_to_base64(result_img)
         return {"status": "success", "image_base64": f"data:image/png;base64,{b64}"}
+    except ImageValidationError as ve:
+        return JSONResponse(status_code=ve.status_code, content={"error": MESSAGES[lang][ve.msg_key]})
     except Exception as e:
         base_err = str(e)
         err_msg = traceback.format_exc()
@@ -969,7 +1091,13 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             print(f"Webhook (invoice.payment_succeeded) - skipped initial payment (billing_reason=subscription_create)")
             return {"status": "skipped - initial payment"}
 
-        print(f"Webhook (invoice.payment_succeeded) - sub_id: {sub_id}")
+        # invoice ID で冪等化（再配送されても2回目以降はリセットしない）
+        invoice_id = getattr(invoice, 'id', None)
+        if not invoice_id or not isinstance(invoice_id, str):
+            print("ERROR: invoice.payment_succeeded without invoice id")
+            return {"status": "skipped - no invoice id"}
+
+        print(f"Webhook (invoice.payment_succeeded) - sub_id: {sub_id}, invoice: {invoice_id}")
 
         plan_credits = {"lite": 30, "plus": 70, "max": 200}
 
@@ -982,12 +1110,25 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             if firebase_uid:
                 user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
                 if user:
+                    # 現在の契約と一致しない invoice（旧契約の遅延配送など）は無視
+                    if user.stripe_subscription_id and user.stripe_subscription_id != sub_id:
+                        print(f"SKIPPED: invoice {invoice_id} for {sub_id} does not match current subscription of user {mask_uid(firebase_uid)}")
+                        return {"status": "skipped - subscription mismatch"}
+                    if not _record_processed_invoice(db, invoice_id, firebase_uid, sub_id):
+                        print(f"SKIPPED: invoice {invoice_id} already processed")
+                        return {"status": "skipped - already processed"}
                     # DBのplanからクレジット数を決定（メタデータに依存しない）
                     credits_to_add = plan_credits.get(user.plan, 0)
                     if credits_to_add > 0:
                         user.credits = credits_to_add
-                        db.commit()
+                    if not user.stripe_subscription_id:
+                        user.stripe_subscription_id = sub_id
+                    # 処理済み記録と残高更新を同一トランザクションで確定
+                    db.commit()
+                    if credits_to_add > 0:
                         print(f"SUCCESS: Reset credits for user {mask_uid(firebase_uid)} (plan={user.plan}, monthly renewal)")
+                    else:
+                        print(f"INFO: invoice {invoice_id} recorded, no credits reset (plan={user.plan})")
                 else:
                     print(f"ERROR: User {mask_uid(firebase_uid)} not found for subscription")
             else:
@@ -1020,6 +1161,11 @@ async def change_plan(request: Request, user: User = Depends(get_current_user), 
     if not user.stripe_subscription_id:
         return JSONResponse(status_code=400, content={"error": MESSAGES[lang]["no_active_subscription"]})
 
+    # 同一プランへの変更は何もしない（再送でチケットが満額に戻るのを防ぐ）
+    if user.plan == new_plan:
+        return {"status": "success", "plan": user.plan, "credits": user.credits,
+                "changed": False, "message": MESSAGES[lang]["plan_unchanged"]}
+
     try:
         subscription = stripe.Subscription.retrieve(user.stripe_subscription_id)
         item_id = subscription["items"]["data"][0]["id"]
@@ -1040,7 +1186,7 @@ async def change_plan(request: Request, user: User = Depends(get_current_user), 
         db.commit()
 
         print(f"change-plan: user={mask_uid(user.firebase_uid)}, plan={new_plan}")
-        return {"status": "success", "plan": new_plan, "credits": config["credits"]}
+        return {"status": "success", "plan": new_plan, "credits": config["credits"], "changed": True}
     except Exception as e:
         print(f"change-plan error: {e}")
         return JSONResponse(status_code=400, content={"error": MESSAGES[lang]["plan_change_failed"]})
@@ -1052,10 +1198,9 @@ async def downgrade_user(user: User = Depends(get_current_user), db: Session = D
         return JSONResponse(status_code=401, content={"error": "Unauthorized"})
     
     FREE_PLAN_LIMIT = 10
-    user.plan = 'free'
-    user.credits = min(user.credits or 0, FREE_PLAN_LIMIT)
-    
-    # Stripeのサブスクリプションがあれば解約予約（期間終了時に停止）
+
+    # Stripeのサブスクリプションがあれば先に解約予約（期間終了時に停止）。
+    # Stripe側で確定できた場合だけローカルを無料プランへ変更する（請求だけ続く事故を防ぐ）。
     if user.stripe_subscription_id:
         try:
             stripe.Subscription.modify(
@@ -1064,8 +1209,15 @@ async def downgrade_user(user: User = Depends(get_current_user), db: Session = D
             )
             print(f"Stripe subscription {user.stripe_subscription_id} set to cancel at period end.")
         except Exception as e:
-            print(f"Stripe cancellation warning: {e}")
+            if _is_stripe_resource_missing(e):
+                # Stripe側に既に存在しない契約（解約済み等）はローカルのみ更新して続行
+                print(f"Stripe subscription {user.stripe_subscription_id} not found on Stripe, downgrading locally: {e}")
+            else:
+                print(f"ERROR: Stripe cancellation failed for user {mask_uid(user.firebase_uid)}: {e}")
+                return JSONResponse(status_code=502, content={"error": MESSAGES[lang]["downgrade_failed"]})
 
+    user.plan = 'free'
+    user.credits = min(user.credits or 0, FREE_PLAN_LIMIT)
     db.commit()
     return {"status": "success", "message": MESSAGES[lang]["downgrade_success"]}
 

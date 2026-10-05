@@ -7,7 +7,7 @@ import hmac
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import update, func
+from sqlalchemy import update, func, select, case
 from database import get_db, User, GeneratedImage, ProcessedPaymentSession, ProcessedInvoice
 from dotenv import load_dotenv
 import os
@@ -298,6 +298,11 @@ async def startup_event():
             with database.engine.connect() as conn:
                 conn.execute(text("ALTER TABLE users ADD COLUMN terms_agreed BOOLEAN DEFAULT FALSE"))
                 conn.commit()
+        if "last_renewal_period_start" not in columns:
+            print("Adding missing column: last_renewal_period_start")
+            with database.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN last_renewal_period_start INTEGER"))
+                conn.commit()
     except Exception as e:
         print(f"Migration error: {e}")
 
@@ -326,6 +331,10 @@ def mask_uid(uid) -> str:
 _admin_attempts: dict = {}
 _ADMIN_RATE_LIMIT_MAX = 5
 _ADMIN_RATE_LIMIT_WINDOW = 900  # 15分
+
+# ── プラン定義（チケット枚数の唯一の定義元） ──
+PLAN_CREDITS = {"free": 10, "lite": 30, "plus": 70, "max": 200}
+PAID_PLANS = ("lite", "plus", "max")
 
 # ── アップロード・画像サイズ上限（メモリ保護） ──
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024      # 1ファイルあたり 10MB
@@ -401,8 +410,10 @@ def _record_admin_failure(ip: str):
 
 def _deduct_one_credit(db: Session, user: User):
     """チケットを1枚、条件付きUPDATEで原子的に消費する（並行リクエストでも残高を壊さない）。
-    credits優先、なければaddon。戻り値は引き落とし元 ('credits'|'addon')。残高なしなら None。
-    この関数内で commit する。"""
+    credits優先、なければaddon。
+    戻り値: (引き落とし元 'credits'|'addon'|None, 控除後credits, 控除後addon_credits)
+    この関数内で commit し、DB接続をプールへ返す。呼び出し側は AI 処理が終わるまで
+    ORM オブジェクト（user）の属性に触らないこと（触ると新しいトランザクションが開き接続を占有する）。"""
     res = db.execute(
         update(User)
         .where(User.id == user.id, User.credits > 0)
@@ -419,17 +430,33 @@ def _deduct_one_credit(db: Session, user: User):
             .execution_options(synchronize_session=False)
         )
         pool = "addon" if res.rowcount == 1 else None
-    db.commit()
-    db.refresh(user)
-    return pool
+    credits, addon = db.execute(
+        select(User.credits, User.addon_credits).where(User.id == user.id)
+    ).one()
+    db.commit()  # ここで接続を解放。user の属性は期限切れになる（次に触った時に再読込）
+    return pool, credits, addon or 0
 
 def _refund_one_credit(db: Session, user: User, pool: str) -> None:
-    """AI処理失敗時にチケットを1枚返却する（原子的な加算、この関数内で commit する）。"""
-    col = User.addon_credits if pool == "addon" else User.credits
+    """AI処理失敗時にチケットを1枚返却する（原子的な加算、この関数内で commit する）。
+    credits は現在のプラン上限で頭打ちにする。控除後に月次リセットが走っていた場合、
+    返却で上限を超えない（期限切れチケットは返さない）。addon は購入分なので上限なし。"""
+    user_id = user.id
+    if pool == "addon":
+        values = {User.addon_credits: func.coalesce(User.addon_credits, 0) + 1}
+    else:
+        plan = db.execute(select(User.plan).where(User.id == user_id)).scalar()
+        limit = PLAN_CREDITS.get(plan)
+        if limit is None:
+            values = {User.credits: func.coalesce(User.credits, 0) + 1}
+        else:
+            values = {User.credits: case(
+                (func.coalesce(User.credits, 0) < limit, func.coalesce(User.credits, 0) + 1),
+                else_=User.credits,
+            )}
     db.execute(
         update(User)
-        .where(User.id == user.id)
-        .values({col: func.coalesce(col, 0) + 1})
+        .where(User.id == user_id)
+        .values(values)
         .execution_options(synchronize_session=False)
     )
     db.commit()
@@ -456,19 +483,59 @@ def _record_payment_session(
         db.rollback()
         return False
 
-def _record_processed_invoice(db: Session, invoice_id: str, firebase_uid: str, subscription_id: str) -> bool:
+def _record_processed_invoice(db: Session, invoice_id: str, firebase_uid: str, subscription_id: str,
+                              billing_reason=None, period_start=None, credits_reset: bool = False) -> bool:
     """月次更新 invoice をユニーク制約で先に確保する。Falseなら処理済み（再配送）。"""
     try:
         db.add(ProcessedInvoice(
             invoice_id=invoice_id,
             firebase_uid=firebase_uid,
             subscription_id=subscription_id,
+            billing_reason=billing_reason,
+            period_start=period_start,
+            credits_reset=credits_reset,
         ))
         db.flush()
         return True
     except IntegrityError:
         db.rollback()
         return False
+
+def _sget(obj, key: str, default=None):
+    """Stripe オブジェクト / dict のどちらからでも安全にフィールドを取る。"""
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+def _as_id(value):
+    """文字列IDならそのまま、展開済みオブジェクトなら .id を返す。それ以外は None。"""
+    if isinstance(value, str):
+        return value
+    inner = _sget(value, "id")
+    return inner if isinstance(inner, str) else None
+
+def _invoice_subscription_id(invoice):
+    """Invoice から契約IDを取り出す。Stripe API バージョンによって位置が異なる。
+    - 2025-03-31.basil より前: invoice.subscription
+    - basil 以降（本番 Webhook は 2026-03-25.dahlia）: invoice.parent.subscription_details.subscription
+    - 行アイテム側: invoice.lines.data[].parent.subscription_item_details.subscription
+    """
+    sub_id = _as_id(_sget(invoice, "subscription"))
+    if sub_id:
+        return sub_id
+    parent = _sget(invoice, "parent")
+    sub_id = _as_id(_sget(_sget(parent, "subscription_details"), "subscription"))
+    if sub_id:
+        return sub_id
+    lines = _sget(_sget(invoice, "lines"), "data") or []
+    for line in lines:
+        line_parent = _sget(line, "parent")
+        sub_id = _as_id(_sget(_sget(line_parent, "subscription_item_details"), "subscription"))
+        if sub_id:
+            return sub_id
+    return None
 
 def _is_stripe_resource_missing(e: Exception) -> bool:
     """Stripe側に対象が存在しない（解約済み等）エラーか判定する。"""
@@ -685,13 +752,16 @@ async def sketch_to_real(
         img = await run_in_threadpool(_open_upload_image, contents)
         del contents
 
-        pool = _deduct_one_credit(db, user)
+        pool, credits_remaining, _ = _deduct_one_credit(db, user)
         if pool is None:
             return JSONResponse(status_code=402, content={"error": MESSAGES[lang]["insufficient_tickets"]})
 
+        # ここから結果のエンコードまでは DB 接続を持たない（user の属性にも触らない）。
+        # 失敗したらエンコード失敗も含めてチケットを返却する。
         try:
             # 同期のAI通信をスレッドプールへ逃がし、イベントループを塞がない
             result_img = await run_in_threadpool(ImageProcessor.sketch_to_realistic, img, api_token=OPENAI_API_KEY, quality=quality)
+            b64 = await run_in_threadpool(pil_to_base64, result_img)
         except Exception:
             try:
                 db.rollback()
@@ -700,8 +770,7 @@ async def sketch_to_real(
                 print(f"WARN: ticket refund failed for user {mask_uid(user.firebase_uid)}")
             raise
 
-        b64 = pil_to_base64(result_img)
-        return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
+        return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": credits_remaining}
     except ImageValidationError as ve:
         return JSONResponse(status_code=ve.status_code, content={"error": MESSAGES[lang][ve.msg_key]})
     except Exception as e:
@@ -742,12 +811,13 @@ async def edit_instruction(
         img = await run_in_threadpool(_open_upload_image, contents)
         del contents
 
-        pool = _deduct_one_credit(db, user)
+        pool, credits_remaining, _ = _deduct_one_credit(db, user)
         if pool is None:
             return JSONResponse(status_code=402, content={"error": MESSAGES[lang]["insufficient_tickets"]})
 
         try:
             result_img = await run_in_threadpool(ImageProcessor.edit_by_instruction, img, instruction, api_token=OPENAI_API_KEY, quality=quality)
+            b64 = await run_in_threadpool(pil_to_base64, result_img)
         except Exception:
             try:
                 db.rollback()
@@ -756,8 +826,7 @@ async def edit_instruction(
                 print(f"WARN: ticket refund failed for user {mask_uid(user.firebase_uid)}")
             raise
 
-        b64 = pil_to_base64(result_img)
-        return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
+        return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": credits_remaining}
     except ImageValidationError as ve:
         return JSONResponse(status_code=ve.status_code, content={"error": MESSAGES[lang][ve.msg_key]})
     except Exception as e:
@@ -812,7 +881,7 @@ async def blend_endpoint(
         if width > max_dim or height > max_dim:
             return JSONResponse(status_code=400, content={"error": MESSAGES[lang]["invalid_params"]})
 
-        pool = _deduct_one_credit(db, user)
+        pool, credits_remaining, _ = _deduct_one_credit(db, user)
         if pool is None:
             return JSONResponse(status_code=402, content={"error": MESSAGES[lang]["insufficient_tickets"]})
 
@@ -825,6 +894,7 @@ async def blend_endpoint(
                 angle=angle, api_token=OPENAI_API_KEY,
                 is_sketch=is_sketch, quality=quality
             )
+            b64 = await run_in_threadpool(pil_to_base64, result_img)
         except Exception:
             try:
                 db.rollback()
@@ -833,8 +903,7 @@ async def blend_endpoint(
                 print(f"WARN: ticket refund failed for user {mask_uid(user.firebase_uid)}")
             raise
 
-        b64 = pil_to_base64(result_img)
-        return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": user.credits}
+        return {"status": "success", "image_base64": f"data:image/png;base64,{b64}", "credits_remaining": credits_remaining}
     except ImageValidationError as ve:
         return JSONResponse(status_code=ve.status_code, content={"error": MESSAGES[lang][ve.msg_key]})
     except Exception as e:
@@ -1081,25 +1150,28 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     # 2. 2ヶ月目以降の更新支払い成功時
     elif event['type'] == 'invoice.payment_succeeded':
         invoice = event['data']['object']
-        sub_id = getattr(invoice, 'subscription', None)
+        sub_id = _invoice_subscription_id(invoice)
         if not sub_id:
+            print("Webhook (invoice.payment_succeeded) - skipped: no subscription id in invoice")
             return {"status": "skipped - no subscription id"}
 
         # 初回サブスク開始時はcheckout.session.completedで処理済みのためスキップ
-        billing_reason = getattr(invoice, 'billing_reason', None)
+        billing_reason = _sget(invoice, 'billing_reason')
         if billing_reason == 'subscription_create':
             print(f"Webhook (invoice.payment_succeeded) - skipped initial payment (billing_reason=subscription_create)")
             return {"status": "skipped - initial payment"}
 
         # invoice ID で冪等化（再配送されても2回目以降はリセットしない）
-        invoice_id = getattr(invoice, 'id', None)
+        invoice_id = _sget(invoice, 'id')
         if not invoice_id or not isinstance(invoice_id, str):
             print("ERROR: invoice.payment_succeeded without invoice id")
             return {"status": "skipped - no invoice id"}
 
-        print(f"Webhook (invoice.payment_succeeded) - sub_id: {sub_id}, invoice: {invoice_id}")
+        period_start = _sget(invoice, 'period_start')
+        if not isinstance(period_start, int):
+            period_start = None
 
-        plan_credits = {"lite": 30, "plus": 70, "max": 200}
+        print(f"Webhook (invoice.payment_succeeded) - sub_id: {sub_id}, invoice: {invoice_id}, reason: {billing_reason}, period_start: {period_start}")
 
         # サブスクリプション詳細を取得してユーザーを特定
         try:
@@ -1107,32 +1179,56 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             _sub_meta = getattr(subscription, 'metadata', None)
             firebase_uid = _metadata_get(_sub_meta, 'firebase_uid')
 
-            if firebase_uid:
-                user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
-                if user:
-                    # 現在の契約と一致しない invoice（旧契約の遅延配送など）は無視
-                    if user.stripe_subscription_id and user.stripe_subscription_id != sub_id:
-                        print(f"SKIPPED: invoice {invoice_id} for {sub_id} does not match current subscription of user {mask_uid(firebase_uid)}")
-                        return {"status": "skipped - subscription mismatch"}
-                    if not _record_processed_invoice(db, invoice_id, firebase_uid, sub_id):
-                        print(f"SKIPPED: invoice {invoice_id} already processed")
-                        return {"status": "skipped - already processed"}
-                    # DBのplanからクレジット数を決定（メタデータに依存しない）
-                    credits_to_add = plan_credits.get(user.plan, 0)
-                    if credits_to_add > 0:
-                        user.credits = credits_to_add
-                    if not user.stripe_subscription_id:
-                        user.stripe_subscription_id = sub_id
-                    # 処理済み記録と残高更新を同一トランザクションで確定
-                    db.commit()
-                    if credits_to_add > 0:
-                        print(f"SUCCESS: Reset credits for user {mask_uid(firebase_uid)} (plan={user.plan}, monthly renewal)")
-                    else:
-                        print(f"INFO: invoice {invoice_id} recorded, no credits reset (plan={user.plan})")
-                else:
-                    print(f"ERROR: User {mask_uid(firebase_uid)} not found for subscription")
-            else:
+            if not firebase_uid:
                 print(f"ERROR: No firebase_uid in subscription metadata for {sub_id}")
+                return {"status": "success"}
+            user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
+            if not user:
+                print(f"ERROR: User {mask_uid(firebase_uid)} not found for subscription")
+                return {"status": "success"}
+
+            # 現在の契約と一致しない invoice（旧契約の遅延配送など）は無視
+            if user.stripe_subscription_id and user.stripe_subscription_id != sub_id:
+                print(f"SKIPPED: invoice {invoice_id} for {sub_id} does not match current subscription of user {mask_uid(firebase_uid)}")
+                return {"status": "skipped - subscription mismatch"}
+
+            # 月次リセットの対象は定期更新（subscription_cycle）のみ。
+            # プラン変更の日割り請求（subscription_update）などで満額に戻さない。
+            is_cycle = (billing_reason == 'subscription_cycle')
+            # 過去期間の通知（手動再送・順序逆転）で現在の残高を上書きしない
+            is_stale = (
+                is_cycle and period_start is not None and
+                user.last_renewal_period_start is not None and
+                period_start <= user.last_renewal_period_start
+            )
+            do_reset = is_cycle and not is_stale and user.plan in PAID_PLANS
+
+            if not _record_processed_invoice(db, invoice_id, firebase_uid, sub_id,
+                                             billing_reason=billing_reason, period_start=period_start,
+                                             credits_reset=do_reset):
+                print(f"SKIPPED: invoice {invoice_id} already processed")
+                return {"status": "skipped - already processed"}
+
+            if not user.stripe_subscription_id:
+                user.stripe_subscription_id = sub_id
+            if do_reset:
+                user.credits = PLAN_CREDITS[user.plan]
+                if period_start is not None:
+                    user.last_renewal_period_start = period_start
+            # 処理済み記録と残高更新を同一トランザクションで確定
+            db.commit()
+
+            if do_reset:
+                print(f"SUCCESS: Reset credits for user {mask_uid(firebase_uid)} (plan={user.plan}, monthly renewal)")
+                return {"status": "success"}
+            if is_stale:
+                print(f"SKIPPED: invoice {invoice_id} period_start={period_start} is not newer than last renewal {user.last_renewal_period_start}")
+                return {"status": "skipped - stale period"}
+            if not is_cycle:
+                print(f"INFO: invoice {invoice_id} recorded, no credits reset (billing_reason={billing_reason})")
+                return {"status": f"skipped - billing_reason={billing_reason}"}
+            print(f"INFO: invoice {invoice_id} recorded, no credits reset (plan={user.plan})")
+            return {"status": "skipped - plan not paid"}
         except Exception as e:
             print(f"ERROR: Failed to process recurring payment: {e}")
             return JSONResponse(status_code=500, content={"error": "internal error"})
@@ -1149,9 +1245,9 @@ async def change_plan(request: Request, user: User = Depends(get_current_user), 
     new_plan = body.get("plan")
 
     plan_configs = {
-        "lite": {"price_id": os.getenv("STRIPE_PRICE_ID_LITE", "price_dummy_lite"), "credits": 30},
-        "plus": {"price_id": os.getenv("STRIPE_PRICE_ID_PLUS", "price_dummy_plus"), "credits": 70},
-        "max":  {"price_id": os.getenv("STRIPE_PRICE_ID_MAX", "price_dummy_max"),  "credits": 200},
+        "lite": {"price_id": os.getenv("STRIPE_PRICE_ID_LITE", "price_dummy_lite"), "credits": PLAN_CREDITS["lite"]},
+        "plus": {"price_id": os.getenv("STRIPE_PRICE_ID_PLUS", "price_dummy_plus"), "credits": PLAN_CREDITS["plus"]},
+        "max":  {"price_id": os.getenv("STRIPE_PRICE_ID_MAX", "price_dummy_max"),  "credits": PLAN_CREDITS["max"]},
     }
 
     config = plan_configs.get(new_plan)
@@ -1197,7 +1293,7 @@ async def downgrade_user(user: User = Depends(get_current_user), db: Session = D
     if not user:
         return JSONResponse(status_code=401, content={"error": "Unauthorized"})
     
-    FREE_PLAN_LIMIT = 10
+    FREE_PLAN_LIMIT = PLAN_CREDITS["free"]
 
     # Stripeのサブスクリプションがあれば先に解約予約（期間終了時に停止）。
     # Stripe側で確定できた場合だけローカルを無料プランへ変更する（請求だけ続く事故を防ぐ）。

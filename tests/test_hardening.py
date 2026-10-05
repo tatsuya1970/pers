@@ -273,25 +273,25 @@ class TestAtomicCredits:
     def test_creditsがあればcreditsから控除(self, db):
         user = User(firebase_uid="u1", credits=5, addon_credits=2)
         db.add(user); db.commit(); db.refresh(user)
-        assert _deduct_one_credit(db, user) == "credits"
+        assert _deduct_one_credit(db, user) == ("credits", 4, 2)
         assert (user.credits, user.addon_credits) == (4, 2)
 
     def test_credits0ならaddonから控除(self, db):
         user = User(firebase_uid="u2", credits=0, addon_credits=2)
         db.add(user); db.commit(); db.refresh(user)
-        assert _deduct_one_credit(db, user) == "addon"
+        assert _deduct_one_credit(db, user) == ("addon", 0, 1)
         assert (user.credits, user.addon_credits) == (0, 1)
 
     def test_両方0ならNoneで残高は変わらない(self, db):
         user = User(firebase_uid="u3", credits=0, addon_credits=0)
         db.add(user); db.commit(); db.refresh(user)
-        assert _deduct_one_credit(db, user) is None
+        assert _deduct_one_credit(db, user) == (None, 0, 0)
         assert (user.credits, user.addon_credits) == (0, 0)
 
     def test_addonがNULLでも安全(self, db):
         user = User(firebase_uid="u4", credits=0, addon_credits=None)
         db.add(user); db.commit(); db.refresh(user)
-        assert _deduct_one_credit(db, user) is None
+        assert _deduct_one_credit(db, user) == (None, 0, 0)
         _refund_one_credit(db, user, "addon")
         assert user.addon_credits == 1
 
@@ -312,7 +312,7 @@ class TestAtomicCredits:
             s = SessionLocal()
             try:
                 u = s.get(User, uid)
-                return _deduct_one_credit(s, u)
+                return _deduct_one_credit(s, u)[0]
             finally:
                 s.close()
 
@@ -336,8 +336,8 @@ class TestAtomicCredits:
         finally:
             other.close()
         assert user.credits == 5  # ORM上は古い
-        assert _deduct_one_credit(db, user) is None
-        assert user.credits == 0  # refresh で実値に同期
+        assert _deduct_one_credit(db, user) == (None, 0, 0)
+        assert user.credits == 0  # commit で期限切れ → 再読込で実値に同期
 
 
 # ══════════════════════════════════════════════════════
@@ -465,3 +465,298 @@ class TestUploadLimits:
         assert resp.status_code == 200
         db.refresh(user)
         assert user.credits == 4
+
+
+# ══════════════════════════════════════════════════════
+#  第2回指摘 1: Stripe API バージョン差による Invoice 形式
+# ══════════════════════════════════════════════════════
+
+import stripe as stripe_lib
+
+def basil_invoice(invoice_id="in_basil_001", sub_id="sub_001", billing_reason="subscription_cycle",
+                  period_start=1_800_000_000):
+    """2025-03-31.basil 以降の実際の JSON 形式（invoice.subscription は存在しない）"""
+    return stripe_lib.Invoice.construct_from({
+        "id": invoice_id,
+        "object": "invoice",
+        "billing_reason": billing_reason,
+        "period_start": period_start,
+        "period_end": period_start + 30 * 86400,
+        "status": "paid",
+        "parent": {
+            "type": "subscription_details",
+            "subscription_details": {"subscription": sub_id, "metadata": {}},
+        },
+        "lines": {"object": "list", "data": [{
+            "id": "il_001", "object": "line_item",
+            "parent": {"type": "subscription_item_details",
+                       "subscription_item_details": {"subscription": sub_id, "subscription_item": "si_001"}},
+        }]},
+    }, "sk_test_dummy")
+
+def legacy_invoice(invoice_id="in_legacy_001", sub_id="sub_001", billing_reason="subscription_cycle",
+                   period_start=1_800_000_000):
+    """basil より前の形式（invoice.subscription に文字列ID）"""
+    return stripe_lib.Invoice.construct_from({
+        "id": invoice_id, "object": "invoice", "billing_reason": billing_reason,
+        "period_start": period_start, "subscription": sub_id,
+    }, "sk_test_dummy")
+
+def ev(invoice):
+    return {"type": "invoice.payment_succeeded", "data": {"object": invoice}}
+
+
+@pytest.mark.asyncio
+class TestInvoiceFormats:
+
+    async def test_basil形式のinvoiceでも契約IDを取り出して付与する(self, db):
+        user = User(firebase_uid="renewal_user", plan="lite", credits=2, stripe_subscription_id="sub_001")
+        db.add(user); db.commit(); db.refresh(user)
+        resp = await post_webhook(ev(basil_invoice()), db)
+        assert resp.json()["status"] == "success"
+        db.refresh(user)
+        assert user.credits == 30
+        assert user.last_renewal_period_start == 1_800_000_000
+
+    async def test_旧形式のinvoiceも引き続き付与する(self, db):
+        user = User(firebase_uid="renewal_user", plan="lite", credits=2, stripe_subscription_id="sub_001")
+        db.add(user); db.commit(); db.refresh(user)
+        resp = await post_webhook(ev(legacy_invoice()), db)
+        assert resp.json()["status"] == "success"
+        db.refresh(user)
+        assert user.credits == 30
+
+    async def test_行アイテムにしか契約IDが無い形式(self, db):
+        user = User(firebase_uid="renewal_user", plan="plus", credits=2, stripe_subscription_id="sub_001")
+        db.add(user); db.commit(); db.refresh(user)
+        inv = stripe_lib.Invoice.construct_from({
+            "id": "in_lines_only", "object": "invoice", "billing_reason": "subscription_cycle",
+            "period_start": 1_800_000_000,
+            "lines": {"object": "list", "data": [{"id": "il_1", "object": "line_item",
+                "parent": {"type": "subscription_item_details",
+                           "subscription_item_details": {"subscription": "sub_001"}}}]},
+        }, "sk_test_dummy")
+        resp = await post_webhook(ev(inv), db)
+        assert resp.json()["status"] == "success"
+        db.refresh(user)
+        assert user.credits == 70
+
+    async def test_契約IDがどこにも無ければスキップ(self, db):
+        inv = stripe_lib.Invoice.construct_from({"id": "in_nosub", "object": "invoice",
+                                                 "billing_reason": "manual"}, "sk_test_dummy")
+        resp = await post_webhook(ev(inv), db)
+        assert resp.json()["status"] == "skipped - no subscription id"
+
+
+
+class TestInvoiceSubscriptionHelper:
+
+    def test_契約ID抽出ヘルパーは展開済みオブジェクトにも対応(self):
+        inv = {"subscription": {"id": "sub_expanded", "object": "subscription"}}
+        assert main._invoice_subscription_id(inv) == "sub_expanded"
+        inv = {"parent": {"subscription_details": {"subscription": {"id": "sub_exp2"}}}}
+        assert main._invoice_subscription_id(inv) == "sub_exp2"
+        assert main._invoice_subscription_id({}) is None
+        assert main._invoice_subscription_id(None) is None
+
+
+# ══════════════════════════════════════════════════════
+#  第2回指摘 3: 古い月次通知の遅延到着・定期更新以外の請求
+# ══════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+class TestStaleAndNonCycleInvoices:
+
+    async def test_過去期間の別invoiceが遅れて届いても残高は復活しない(self, db):
+        user = User(firebase_uid="renewal_user", plan="lite", credits=2, stripe_subscription_id="sub_001")
+        db.add(user); db.commit(); db.refresh(user)
+        # 新しい月次更新を先に処理
+        resp = await post_webhook(ev(basil_invoice("in_new", period_start=2_000)), db)
+        assert resp.json()["status"] == "success"
+        user.credits = 3; db.commit()
+        # 古い期間の未処理 invoice（別ID）が遅延到着
+        resp = await post_webhook(ev(basil_invoice("in_old", period_start=1_000)), db)
+        assert resp.json()["status"] == "skipped - stale period"
+        db.refresh(user)
+        assert user.credits == 3
+        assert user.last_renewal_period_start == 2_000
+        # 古い invoice も処理済みとして記録される（再配送されても再評価しない）
+        assert db.query(ProcessedInvoice).filter_by(invoice_id="in_old").one().credits_reset is False
+
+    async def test_同じ期間の再発行invoiceも復活しない(self, db):
+        user = User(firebase_uid="renewal_user", plan="lite", credits=2, stripe_subscription_id="sub_001")
+        db.add(user); db.commit(); db.refresh(user)
+        await post_webhook(ev(basil_invoice("in_a", period_start=5_000)), db)
+        user.credits = 1; db.commit()
+        resp = await post_webhook(ev(basil_invoice("in_b", period_start=5_000)), db)
+        assert resp.json()["status"] == "skipped - stale period"
+        db.refresh(user)
+        assert user.credits == 1
+
+    async def test_翌期間のinvoiceは付与される(self, db):
+        user = User(firebase_uid="renewal_user", plan="lite", credits=2, stripe_subscription_id="sub_001")
+        db.add(user); db.commit(); db.refresh(user)
+        await post_webhook(ev(basil_invoice("in_m1", period_start=1_000)), db)
+        user.credits = 1; db.commit()
+        resp = await post_webhook(ev(basil_invoice("in_m2", period_start=1_000 + 30 * 86400)), db)
+        assert resp.json()["status"] == "success"
+        db.refresh(user)
+        assert user.credits == 30
+
+    async def test_プラン変更の日割り請求では満額に戻さない(self, db):
+        user = User(firebase_uid="renewal_user", plan="plus", credits=12, stripe_subscription_id="sub_001")
+        db.add(user); db.commit(); db.refresh(user)
+        resp = await post_webhook(ev(basil_invoice("in_upd", billing_reason="subscription_update")), db)
+        assert resp.json()["status"] == "skipped - billing_reason=subscription_update"
+        db.refresh(user)
+        assert user.credits == 12
+        assert user.last_renewal_period_start is None
+
+    async def test_period_startが無いinvoiceは従来どおり付与(self, db):
+        user = User(firebase_uid="renewal_user", plan="lite", credits=2, stripe_subscription_id="sub_001")
+        db.add(user); db.commit(); db.refresh(user)
+        inv = stripe_lib.Invoice.construct_from({"id": "in_np", "object": "invoice",
+            "billing_reason": "subscription_cycle", "subscription": "sub_001"}, "sk_test_dummy")
+        resp = await post_webhook(ev(inv), db)
+        assert resp.json()["status"] == "success"
+        db.refresh(user)
+        assert user.credits == 30
+
+
+# ══════════════════════════════════════════════════════
+#  第2回指摘 2: AI処理中にDB接続を保持しない
+# ══════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+class TestNoConnectionDuringAI:
+
+    # 注: エンドポイントは Depends(get_db) で独自の Session を作るため、
+    # 接続の保持はエンジンのプール（checkedout 数）で観測する。
+    # テスト側の Session は事前に commit して接続を返しておく。
+
+    async def test_AI処理中はDB接続がプールに返っている(self, db):
+        user = User(firebase_uid="conn_user", plan="lite", credits=5)
+        db.add(user); db.commit(); db.refresh(user)
+        db.commit()
+        seen = {}
+
+        def fake_ai(*args, **kwargs):
+            seen["checkedout"] = engine.pool.checkedout()
+            return Image.new("RGBA", (10, 10))
+
+        with mock_firebase("conn_user"), mock_db(db), \
+             patch("main.ImageProcessor.sketch_to_realistic", side_effect=fake_ai):
+            async with client() as c:
+                resp = await c.post("/api/sketch-to-real",
+                                    files={"file": ("a.png", make_png_bytes(), "image/png")},
+                                    headers=auth_headers())
+        assert resp.status_code == 200
+        assert seen["checkedout"] == 0
+        assert resp.json()["credits_remaining"] == 4
+        db.refresh(user)
+        assert user.credits == 4
+
+    async def test_blendでもAI処理中はDB接続がプールに返っている(self, db):
+        user = User(firebase_uid="conn_user2", plan="lite", credits=5)
+        db.add(user); db.commit(); db.refresh(user)
+        db.commit()
+        seen = {}
+
+        def fake_ai(*args, **kwargs):
+            seen["checkedout"] = engine.pool.checkedout()
+            return Image.new("RGBA", (10, 10))
+
+        data = {"cx": "50", "cy": "50", "width": "100", "height": "100", "angle": "0"}
+        with mock_firebase("conn_user2"), mock_db(db), \
+             patch("main.ImageProcessor.blend_building", side_effect=fake_ai):
+            async with client() as c:
+                resp = await c.post("/api/blend",
+                                    files={"bg_file": ("bg.png", make_png_bytes(), "image/png"),
+                                           "bld_file": ("bld.png", make_png_bytes(), "image/png")},
+                                    data=data, headers=auth_headers())
+        assert resp.status_code == 200
+        assert seen["checkedout"] == 0
+
+
+# ══════════════════════════════════════════════════════
+#  第2回指摘 4: 生成後のエンコード失敗でも返却
+# ══════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+class TestRefundAfterEncodeFailure:
+
+    @pytest.mark.parametrize("endpoint,ai_name,extra", [
+        ("/api/sketch-to-real", "sketch_to_realistic", {}),
+        ("/api/instruction", "edit_by_instruction", {"instruction": "x"}),
+    ])
+    async def test_エンコード失敗でもチケットが返却される(self, db, endpoint, ai_name, extra):
+        user = User(firebase_uid="enc_user", plan="lite", credits=5)
+        db.add(user); db.commit(); db.refresh(user)
+        with mock_firebase("enc_user"), mock_db(db), \
+             patch(f"main.ImageProcessor.{ai_name}", return_value=Image.new("RGBA", (10, 10))), \
+             patch("main.pil_to_base64", side_effect=RuntimeError("encode failed")), \
+             patch("main.send_error_email_task"):
+            async with client() as c:
+                resp = await c.post(endpoint,
+                                    files={"file": ("a.png", make_png_bytes(), "image/png")},
+                                    data=extra, headers=auth_headers())
+        assert resp.status_code == 500
+        db.refresh(user)
+        assert user.credits == 5
+
+    async def test_blendのエンコード失敗でもチケットが返却される(self, db):
+        user = User(firebase_uid="enc_user2", plan="lite", credits=5)
+        db.add(user); db.commit(); db.refresh(user)
+        data = {"cx": "50", "cy": "50", "width": "100", "height": "100", "angle": "0"}
+        with mock_firebase("enc_user2"), mock_db(db), \
+             patch("main.ImageProcessor.blend_building", return_value=Image.new("RGBA", (10, 10))), \
+             patch("main.pil_to_base64", side_effect=RuntimeError("encode failed")), \
+             patch("main.send_error_email_task"):
+            async with client() as c:
+                resp = await c.post("/api/blend",
+                                    files={"bg_file": ("bg.png", make_png_bytes(), "image/png"),
+                                           "bld_file": ("bld.png", make_png_bytes(), "image/png")},
+                                    data=data, headers=auth_headers())
+        assert resp.status_code == 500
+        db.refresh(user)
+        assert user.credits == 5
+
+
+# ══════════════════════════════════════════════════════
+#  第2回指摘 5: 月次更新をまたいだ返却は上限で頭打ち
+# ══════════════════════════════════════════════════════
+
+class TestRefundCap:
+
+    def test_月次リセット後の返却は上限を超えない(self, db):
+        user = User(firebase_uid="cap_user", plan="lite", credits=1)
+        db.add(user); db.commit(); db.refresh(user)
+        pool, _, _ = _deduct_one_credit(db, user)
+        assert pool == "credits"
+        # AI処理中に月次リセットが走った
+        other = SessionLocal()
+        try:
+            other.get(User, user.id).credits = 30
+            other.commit()
+        finally:
+            other.close()
+        _refund_one_credit(db, user, pool)
+        assert user.credits == 30  # 31 にならない
+
+    def test_上限未満なら通常どおり返却(self, db):
+        user = User(firebase_uid="cap_user2", plan="lite", credits=29)
+        db.add(user); db.commit(); db.refresh(user)
+        _refund_one_credit(db, user, "credits")
+        assert user.credits == 30
+
+    def test_addonは上限なしで返却(self, db):
+        user = User(firebase_uid="cap_user3", plan="lite", credits=30, addon_credits=50)
+        db.add(user); db.commit(); db.refresh(user)
+        _refund_one_credit(db, user, "addon")
+        assert user.addon_credits == 51
+
+    def test_未知のプランは上限なしで返却(self, db):
+        user = User(firebase_uid="cap_user4", plan="legacy", credits=999)
+        db.add(user); db.commit(); db.refresh(user)
+        _refund_one_credit(db, user, "credits")
+        assert user.credits == 1000

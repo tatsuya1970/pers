@@ -36,6 +36,7 @@ class User(Base):
     addon_credits = Column(Integer, default=0)         # 追加購入分（繰り越し）
     stripe_subscription_id = Column(String, nullable=True) # 解約制御用に保持
     last_session_id = Column(String, nullable=True)    # 二重付与防止用
+    last_renewal_period_start = Column(Integer, nullable=True)  # 最後に付与した月次請求の期間開始(unix秒)。過去期間の通知で上書きしない
     terms_agreed = Column(Boolean, default=False, nullable=False, server_default="0")
     created_at = Column(DateTime, default=lambda: _dt.datetime.now(_dt.timezone.utc))
     
@@ -57,6 +58,9 @@ class ProcessedInvoice(Base):
     invoice_id = Column(String, unique=True, nullable=False, index=True)
     firebase_uid = Column(String, nullable=False, index=True)
     subscription_id = Column(String, nullable=True)
+    billing_reason = Column(String, nullable=True)
+    period_start = Column(Integer, nullable=True)
+    credits_reset = Column(Boolean, default=False, nullable=False, server_default="0")
     created_at = Column(DateTime, default=lambda: _dt.datetime.now(_dt.timezone.utc))
 
 class ProcessedPaymentSession(Base):
